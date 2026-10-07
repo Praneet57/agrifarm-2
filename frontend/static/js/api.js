@@ -4,7 +4,8 @@ function getUser(){const u=localStorage.getItem("user");return u?JSON.parse(u):n
 function setAuth(t,r,u){localStorage.setItem("access_token",t);localStorage.setItem("refresh_token",r);localStorage.setItem("user",JSON.stringify(u))}
 function clearAuth(){localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");localStorage.removeItem("user")}
 function requireAuth(){if(!getToken()){window.location.href="/login.html";return false}return true}
-function redirectIfLoggedIn(){const u=getUser();if(u)window.location.href=u.role==="farmer"?"/farmer/dashboard.html":"/buyer/dashboard.html"}
+function dashboardUrl(user=getUser()){return user?.role==="admin"?"/admin/dashboard.html":"/workspace.html"}
+function redirectIfLoggedIn(){const user=getUser();if(user)window.location.href=dashboardUrl(user)}
 function logout(){clearAuth();window.location.href="/"}
 function toQueryString(params={}){
   const sp=new URLSearchParams();
@@ -19,6 +20,9 @@ async function apiFetch(path,options={}){
   const token=getToken();
   const headers={"Content-Type":"application/json",...(options.headers||{})};
   if(token)headers["Authorization"]=`Bearer ${token}`;
+
+  const method=(options.method||"GET").toUpperCase();
+  const needsRefresh = ["POST","PUT","PATCH","DELETE"].includes(method);
 
   const res=await fetch(API_BASE+path,{...options,headers,cache:"no-store"});
 
@@ -37,8 +41,13 @@ async function apiFetch(path,options={}){
             const e=await retry.json().catch(()=>({}));
             throw new Error(e.detail||`Error ${retry.status}`);
           }
-          if(retry.status===204)return null;
-          return retry.json();
+          if(retry.status===204){
+            if(needsRefresh) triggerDashboardRefresh(method);
+            return null;
+          }
+          const data=await retry.json();
+          if(needsRefresh) triggerDashboardRefresh(method);
+          return data;
         }else{
           const e=await rr.json().catch(()=>({}));
           throw new Error(e.detail||`Refresh failed (${rr.status})`);
@@ -57,8 +66,13 @@ async function apiFetch(path,options={}){
     const err=await res.json().catch(()=>({}));
     throw new Error(err.detail||`Error ${res.status}`)
   }
-  if(res.status===204)return null;
-  return res.json();
+  if(res.status===204){
+    if(needsRefresh) triggerDashboardRefresh(method);
+    return null;
+  }
+  const data=await res.json();
+  if(needsRefresh) triggerDashboardRefresh(method);
+  return data;
 }
 
 const API={
@@ -72,7 +86,7 @@ const API={
   farmerConversionStatus:()=>apiFetch("/auth/farmer-conversion/status"),
   updateMe:(d)=>apiFetch("/auth/me",{method:"PUT",body:JSON.stringify(d)}),
   changePassword:(d)=>apiFetch("/auth/change-password",{method:"POST",body:JSON.stringify(d)}),
-  forgotPassword:(phone)=>apiFetch("/auth/forgot-password",{method:"POST",body:JSON.stringify({phone})}),
+  forgotPassword:(email)=>apiFetch("/auth/forgot-password",{method:"POST",body:JSON.stringify({email})}),
   resetPassword:(d)=>apiFetch("/auth/reset-password",{method:"POST",body:JSON.stringify(d)}),
   sendVerification:()=>apiFetch("/auth/send-verification",{method:"POST"}),
   verifyPhone:(token)=>apiFetch("/auth/verify-phone",{method:"POST",body:JSON.stringify({verify_token:token})}),
@@ -151,7 +165,7 @@ function triggerDashboardRefresh(reason = "status"){
     window.refreshDashboardData(reason);
     return;
   }
-  if (window.location.pathname.includes("/buyer/dashboard.html") || window.location.pathname.includes("/farmer/dashboard.html")) {
+  if (window.location.pathname.includes("/workspace.html") || window.location.pathname.includes("/buyer/dashboard.html") || window.location.pathname.includes("/farmer/dashboard.html")) {
     window.location.reload();
   }
 }
@@ -181,11 +195,10 @@ function startOrderStatusToastWatcher(){
       const snapshot = JSON.parse(localStorage.getItem(snapshotKey) || "{}");
       const next = {};
       let changed = false;
-      const isFarmer = currentUser.role === "farmer";
       (orders || []).forEach(o => {
         next[o.id] = o.status;
         const prev = snapshot[o.id];
-        if (isFarmer && prev === undefined && o.status === "pending") {
+        if (o.farmer_id === currentUser.id && prev === undefined && o.status === "pending") {
           changed = true;
           showToast(`${o.order_number}: New order received`, "info");
         } else if (prev && prev !== o.status) {

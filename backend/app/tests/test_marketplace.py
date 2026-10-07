@@ -47,6 +47,22 @@ class TestDemands:
         assert r.status_code == 403
 
 class TestOrders:
+    async def test_order_payload_returns_product_name(self, client: AsyncClient, farmer_token, buyer_token):
+        farmer_me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"})
+        farmer_id = farmer_me.json()["id"]
+
+        product = await client.post("/api/v1/products", headers={"Authorization": f"Bearer {farmer_token}"},
+            json={"name":"Order Product Tomato","category":"Vegetables","quantity_kg":100,"price_per_kg":45,
+                  "district":"Dindigul", "delivery_address":"Farm"})
+        product_id = product.json()["id"]
+
+        cr = await client.post("/api/v1/orders", headers={"Authorization": f"Bearer {buyer_token}"},
+            json={"product_id":product_id,"farmer_id":farmer_id,"quantity_kg":20,"price_per_kg":45,
+                  "delivery_address":"Home","district":"Dindigul"})
+
+        assert cr.status_code == 201
+        assert cr.json()["product_name"] == "Order Product Tomato"
+
     async def test_farmer_can_buy_product(self, client: AsyncClient, farmer_token, buyer_token):
         buyer = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {buyer_token}"})
         product = await client.post("/api/v1/products", headers={"Authorization": f"Bearer {buyer_token}"},

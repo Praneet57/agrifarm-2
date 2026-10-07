@@ -1,16 +1,19 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import delete, select, func, desc, update
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.core.security import require_admin
+from app.core.security import blacklist_all_user_tokens, require_admin, revoke_all_refresh_tokens
 from app.models.user import User
 from app.models.product import Product
+from app.models.demand import Demand
 from app.models.order import Order
-from app.models.payment import Payment
+from app.models.payment import Payment, Agreement, ChatMessage, Rating
 from app.schemas import UserOut
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -436,9 +439,87 @@ async def admin_delete_user(
     u = result.scalar_one_or_none()
     if not u:
         raise HTTPException(404, "User not found")
-    u.is_active = False
+    if u.role == "admin":
+        raise HTTPException(400, "Admin users cannot be deleted")
+
+    await blacklist_all_user_tokens(user_id)
+    await revoke_all_refresh_tokens(user_id)
+
+    product_rows = (
+        await db.execute(select(Product.id, Product.image_url).where(Product.farmer_id == user_id))
+    ).all()
+    product_ids = [product_id for product_id, _ in product_rows]
+    product_files = [
+        os.path.join("/app/uploads/products", os.path.basename(image_url))
+        for _, image_url in product_rows
+        if image_url and image_url.startswith("/uploads/products/")
+    ]
+    demand_ids = list(
+        (await db.execute(select(Demand.id).where(Demand.buyer_id == user_id))).scalars().all()
+    )
+
+    order_ids = list(
+        (
+            await db.execute(
+                select(Order.id).where(
+                    (Order.buyer_id == user_id) | (Order.farmer_id == user_id)
+                )
+            )
+        ).scalars().all()
+    )
+
+    # Remove all records that reference the user's orders before deleting them.
+    if order_ids:
+        agreement_paths = list(
+            (
+                await db.execute(
+                    select(Agreement.pdf_key).where(Agreement.order_id.in_(order_ids))
+                )
+            ).scalars().all()
+        )
+        await db.execute(delete(Payment).where(Payment.order_id.in_(order_ids)))
+        await db.execute(delete(Agreement).where(Agreement.order_id.in_(order_ids)))
+        await db.execute(delete(ChatMessage).where(ChatMessage.order_id.in_(order_ids)))
+        await db.execute(delete(Rating).where(Rating.order_id.in_(order_ids)))
+        await db.execute(delete(Order).where(Order.id.in_(order_ids)))
+    else:
+        agreement_paths = []
+
+    # Also remove the user's messages and ratings on other users' orders.
+    await db.execute(delete(ChatMessage).where(ChatMessage.sender_id == user_id))
+    await db.execute(
+        delete(Rating).where(
+            (Rating.rater_id == user_id) | (Rating.rated_id == user_id)
+        )
+    )
+
+    # Historical orders may still reference these records through nullable links.
+    if product_ids:
+        await db.execute(
+            update(Order).where(Order.product_id.in_(product_ids)).values(product_id=None)
+        )
+        await db.execute(delete(Product).where(Product.id.in_(product_ids)))
+    if demand_ids:
+        await db.execute(
+            update(Order).where(Order.demand_id.in_(demand_ids)).values(demand_id=None)
+        )
+        await db.execute(delete(Demand).where(Demand.id.in_(demand_ids)))
+    await db.execute(
+        update(User)
+        .where(User.farmer_conversion_reviewed_by == user_id)
+        .values(farmer_conversion_reviewed_by=None)
+    )
+    await db.execute(delete(User).where(User.id == user_id))
     await db.flush()
-    return {"user_id": user_id, "is_active": u.is_active}
+
+    for file_path in [*product_files, *agreement_paths]:
+        if file_path and os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+
+    return {"user_id": user_id, "deleted": True}
 
 
 @router.patch("/users/{user_id}/block", response_model=Dict[str, Any])
@@ -536,7 +617,10 @@ async def list_farmer_conversions(
         )).one()
         out.append({
             "id": u.id, "full_name": u.full_name, "phone": u.phone, "email": u.email,
-            "district": u.district, "requested_at": u.farmer_conversion_requested_at,
+            "district": u.district, "purpose": u.purpose, "products_to_sell": u.products_to_sell,
+            "products_to_buy": u.products_to_buy, "farm_type": u.farm_type,
+            "farm_agriculture_details": u.farm_agriculture_details,
+            "requested_at": u.farmer_conversion_requested_at,
             "terms_accepted": bool(u.farmer_terms_accepted), "status": u.farmer_conversion_status,
             "purchase_orders": int(purchase_count or 0), "purchase_total": round(float(purchase_total or 0), 2),
             "sell_orders": int(sell_count or 0), "sell_total": round(float(sell_total or 0), 2),

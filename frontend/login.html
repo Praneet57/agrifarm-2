@@ -9,6 +9,7 @@
       <div style="position:relative"><input type="password" id="password" class="form-control" placeholder="Enter your password" style="padding-right:2.5rem"/><span onclick="togglePwd()" style="position:absolute;right:.75rem;top:50%;transform:translateY(-50%);cursor:pointer" id="eye">👁</span></div>
     </div>
     <button class="btn btn-green btn-full mt-2" id="btn" onclick="doLogin()">Sign In</button>
+    <div class="text-center mt-2" style="font-size:.9rem"><a href="/forgot-password.html" style="color:var(--green);font-weight:600">Forgot password?</a></div>
     <div class="text-center mt-2" style="font-size:.9rem;color:var(--muted)">Don't have an account? <a href="/register.html" style="color:var(--green);font-weight:600">Register Free</a></div>
     <div class="divider"></div>
     <div style="background:#f5f5f5;border-radius:8px;padding:.75rem;font-size:.82rem;color:var(--muted)"><strong>Demo accounts:</strong><br>Farmer: 9000000001 / farmer123<br>Buyer: 9000000002 / buyer123</div>
@@ -32,8 +33,7 @@ async function doLogin(){
     setAuth(data.access_token,data.refresh_token,data.user);
     showToast("Welcome back, "+data.user.full_name+"! 👋","success");
     setTimeout(()=>{
-      window.location.href=
-        data.user.role==="admin"?"/admin/dashboard.html":(data.user.role==="farmer"?"/farmer/dashboard.html":"/buyer/dashboard.html")
+      window.location.href=dashboardUrl(data.user)
     },600);
   }catch(e){err.textContent=e.message||"Login failed";err.style.display="block";btn.innerHTML="Sign In";btn.disabled=false}
 

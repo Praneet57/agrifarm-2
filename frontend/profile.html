@@ -63,13 +63,13 @@ if(!requireAuth())throw new Error();
 const user=getUser();
 const params=new URLSearchParams(window.location.search);
 const viewUserId=params.get("user_id");
-document.getElementById("nav-dash").href=user.role==="farmer"?"/farmer/dashboard.html":"/buyer/dashboard.html";
+document.getElementById("nav-dash").href=dashboardUrl(user);
 
 if(viewUserId){
   document.getElementById("page-title").textContent="🌾 Farmer Profile";
   document.getElementById("edit-section").style.display="none";
   document.getElementById("nav-dash").textContent="← Back";
-  document.getElementById("nav-dash").href=sessionStorage.getItem("previousPage")||(user.role==="farmer"?"/farmer/dashboard.html":"/buyer/dashboard.html");
+  document.getElementById("nav-dash").href=sessionStorage.getItem("previousPage")||dashboardUrl(user);
 }
 
 function timeAgo(dateStr){
@@ -89,7 +89,7 @@ async function loadProfile(){
     const u=viewUserId?await API.getUser(viewUserId):await API.me();
     document.getElementById("avatar").textContent=u.full_name[0].toUpperCase();
     document.getElementById("disp-name").textContent=u.full_name;
-    document.getElementById("disp-role").textContent=u.role.charAt(0).toUpperCase()+u.role.slice(1);
+    document.getElementById("disp-role").textContent="Marketplace Member";
     document.getElementById("disp-phone").textContent=u.phone;
     document.getElementById("disp-loc").textContent=[u.village,u.district,u.state].filter(Boolean).join(", ");
     document.getElementById("disp-bio").textContent=u.bio||"";
@@ -127,7 +127,7 @@ async function loadPosts(fid){
 
 function viewProduct(p){
   if(typeof p==="string")p=JSON.parse(p);
-  const url=user.role==="farmer"?"/farmer/dashboard.html":"/buyer/dashboard.html";
+  const url=dashboardUrl(user);
   window.location.href=url+"?view_product="+p.id;
 }
 

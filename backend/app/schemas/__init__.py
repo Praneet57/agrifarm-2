@@ -20,6 +20,14 @@ class UserRegister(BaseModel):
     village: Optional[str] = None
     district: Optional[str] = None
     state: Optional[str] = None
+    taluk: Optional[str] = None
+    area: Optional[str] = None
+    door_no_farm: Optional[str] = None
+    purpose: Optional[str] = None
+    products_to_sell: Optional[str] = None
+    products_to_buy: Optional[str] = None
+    farm_type: Optional[str] = None
+    farm_agriculture_details: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
@@ -38,10 +46,19 @@ class UserOut(BaseModel):
     village: Optional[str]
     district: Optional[str]
     state: Optional[str]
+    taluk: Optional[str]
+    area: Optional[str]
+    door_no_farm: Optional[str]
+    purpose: Optional[str]
+    products_to_sell: Optional[str]
+    products_to_buy: Optional[str]
+    farm_type: Optional[str]
+    farm_agriculture_details: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]
     profile_image: Optional[str]
     bio: Optional[str]
+    is_active: bool
     is_verified: bool
     created_at: datetime
 
@@ -102,6 +119,7 @@ class ProductUpdate(BaseModel):
 class ProductOut(BaseModel):
     id: int
     farmer_id: int
+    farmer_name: Optional[str] = None
     name: str
     category: str
     description: Optional[str]
@@ -182,6 +200,7 @@ class OrderOut(BaseModel):
     order_number: str
     farmer_id: int
     buyer_id: int
+    product_name: Optional[str] = None
 
     quantity_kg: float
     price_per_kg: float

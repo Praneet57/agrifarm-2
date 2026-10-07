@@ -59,6 +59,14 @@ async def _ensure_columns(conn):
         "farmer_conversion_requested_at": "TIMESTAMP WITH TIME ZONE NULL",
         "farmer_conversion_reviewed_at": "TIMESTAMP WITH TIME ZONE NULL",
         "farmer_conversion_reviewed_by": "INTEGER NULL",
+        "taluk": "VARCHAR(100) NULL",
+        "area": "VARCHAR(150) NULL",
+        "door_no_farm": "VARCHAR(150) NULL",
+        "purpose": "VARCHAR(20) NULL",
+        "products_to_sell": "VARCHAR(500) NULL",
+        "products_to_buy": "VARCHAR(500) NULL",
+        "farm_type": "VARCHAR(150) NULL",
+        "farm_agriculture_details": "VARCHAR(1000) NULL",
     }
     for name, definition in user_columns.items():
         if name not in user_existing:

@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 from datetime import datetime, timezone
+import secrets
+import httpx
 from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.redis import get_redis
@@ -15,17 +17,28 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/register", response_model=Token, status_code=201)
 async def register(data: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
     ip = request.client.host if request.client else "unknown"
-    await check_rate_limit(f"register:{ip}", 5, 3600)
+    email = data.email.lower().strip() if data.email else None
     r1 = await db.execute(select(User).where(User.phone == data.phone))
     if r1.scalar_one_or_none():
         raise HTTPException(400, "Phone already registered")
-    if data.email:
-        r2 = await db.execute(select(User).where(User.email == data.email))
+    if email:
+        r2 = await db.execute(select(User).where(User.email == email))
         if r2.scalar_one_or_none():
             raise HTTPException(400, "Email already registered")
-    user = User(full_name=data.full_name, phone=data.phone, email=data.email,
+    if data.purpose not in (None, "sell", "buy"):
+        raise HTTPException(400, "Purpose must be sell or buy")
+    if data.purpose == "sell" and data.role.value != "farmer":
+        raise HTTPException(400, "Selling accounts must be farmer accounts")
+    if data.purpose == "buy" and data.role.value != "buyer":
+        raise HTTPException(400, "Buying accounts must be buyer accounts")
+    await check_rate_limit(f"register:v2:{ip}:{data.phone}", 5, 3600)
+    user = User(full_name=data.full_name, phone=data.phone, email=email,
                 hashed_password=get_password_hash(data.password), role=data.role.value,
                 village=data.village, district=data.district, state=data.state,
+                taluk=data.taluk, area=data.area, door_no_farm=data.door_no_farm,
+                purpose=data.purpose, products_to_sell=data.products_to_sell,
+                products_to_buy=data.products_to_buy, farm_type=data.farm_type,
+                farm_agriculture_details=data.farm_agriculture_details,
                 latitude=data.latitude, longitude=data.longitude)
     db.add(user); await db.flush(); await db.refresh(user)
     at = create_access_token({"sub": str(user.id), "role": user.role})
@@ -94,31 +107,66 @@ async def refresh_tokens(body: RefreshReq, db: AsyncSession = Depends(get_db)):
     return {"access_token": new_at, "refresh_token": new_rt, "token_type": "bearer"}
 
 class ForgotPwdReq(BaseModel):
-    phone: str
+    email: str
 
 class ResetPwdReq(BaseModel):
-    reset_token: str; new_password: str = Field(..., min_length=6)
+    email: str; otp: str; new_password: str = Field(..., min_length=6)
+
+RESET_OTP_TTL_SECONDS = 60
+
+async def send_password_reset_email(email: str, otp: str):
+    if not settings.RESEND_API_KEY:
+        raise HTTPException(503, "Email delivery is not configured. Set RESEND_API_KEY and FROM_EMAIL.")
+    async with httpx.AsyncClient(timeout=10) as client:
+        try:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+                json={
+                    "from": settings.FROM_EMAIL,
+                    "to": [email],
+                    "subject": "AgriMarket password reset OTP",
+                    "text": f"Your AgriMarket password reset OTP is {otp}. It expires in 1 minute.",
+                },
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                502,
+                "Email provider rejected the email. Check RESEND_API_KEY and verify FROM_EMAIL in Resend.",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(503, "Email provider is unavailable. Please try again later.") from exc
 
 @router.post("/forgot-password")
 async def forgot_password(data: ForgotPwdReq, request: Request, db: AsyncSession = Depends(get_db)):
-    await check_rate_limit(f"forgot:{data.phone}", 3, 3600)
-    result = await db.execute(select(User).where(User.phone == data.phone))
+    email = data.email.lower()
+    await check_rate_limit(f"forgot:v2:{email}", 60, 3600)
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if not user: return {"message": "If this phone is registered, a reset link has been sent."}
-    token = create_verification_token(user.id, "password_reset")
-    payload = decode_token(token); r = await get_redis()
-    await r.setex(f"pwd_reset:{payload['jti']}", 900, str(user.id))
-    return {"message": "Reset token generated.", "reset_token": token}
+    if not user: return {"message": "If this email is registered, an OTP has been sent."}
+    r = await get_redis()
+    cooldown_key = f"pwd_reset_cooldown:{email}"
+    cooldown = await r.ttl(cooldown_key)
+    if cooldown > 0:
+        raise HTTPException(429, f"Please wait {cooldown} seconds before requesting another OTP.")
+    otp = f"{secrets.randbelow(1000000):06d}"
+    await send_password_reset_email(email, otp)
+    await r.setex(f"pwd_reset:{email}", RESET_OTP_TTL_SECONDS, f"{user.id}:{otp}")
+    await r.setex(cooldown_key, RESET_OTP_TTL_SECONDS, "1")
+    return {"message": "If this email is registered, an OTP has been sent."}
 
 @router.post("/reset-password")
 async def reset_password(data: ResetPwdReq, db: AsyncSession = Depends(get_db)):
-    try: payload = decode_token(data.reset_token)
-    except: raise HTTPException(400, "Invalid or expired reset token")
-    if payload.get("type") != "otp" or payload.get("purpose") != "password_reset":
-        raise HTTPException(400, "Wrong token type")
-    r = await get_redis(); uid = await r.getdel(f"pwd_reset:{payload['jti']}")
-    if not uid: raise HTTPException(400, "Token already used or expired")
-    result = await db.execute(select(User).where(User.id == int(uid)))
+    email = data.email.lower()
+    r = await get_redis(); stored = await r.getdel(f"pwd_reset:{email}")
+    if not stored: raise HTTPException(400, "OTP expired or already used")
+    stored_value = stored.decode() if isinstance(stored, bytes) else stored
+    try: user_id, expected_otp = stored_value.split(":", 1)
+    except ValueError: raise HTTPException(400, "Invalid reset request")
+    if not secrets.compare_digest(data.otp, expected_otp):
+        raise HTTPException(400, "Invalid OTP")
+    result = await db.execute(select(User).where(User.id == int(user_id), User.email == email))
     user = result.scalar_one_or_none()
     if not user: raise HTTPException(404, "User not found")
     user.hashed_password = get_password_hash(data.new_password); await db.flush()

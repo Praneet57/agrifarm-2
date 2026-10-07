@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 import os
 from contextlib import asynccontextmanager
 
@@ -143,6 +143,15 @@ if os.path.exists(frontend_path):
         StaticFiles(directory=os.path.join(frontend_path, "static")),
         name="static",
     )
+
+    @app.get("/workspace.html", include_in_schema=False)
+    async def workspace():
+        return FileResponse(os.path.join(frontend_path, "farmer", "dashboard.html"))
+
+    @app.get("/farmer/dashboard.html", include_in_schema=False)
+    @app.get("/buyer/dashboard.html", include_in_schema=False)
+    async def legacy_dashboard_redirect():
+        return RedirectResponse("/workspace.html", status_code=301)
 
     @app.get("/", include_in_schema=False)
     async def root():

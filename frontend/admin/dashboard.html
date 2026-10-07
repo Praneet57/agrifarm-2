@@ -298,6 +298,7 @@ async function loadUsers(){
 }
 
 async function deleteUser(id){
+  if(!confirm('Permanently delete this user and all related data, including products, orders, messages, ratings, and files?'))return;
   try{
     await apiFetch(`/admin/users/${id}`,{method:"DELETE"});
     showToast('User deleted','info');
@@ -338,7 +339,15 @@ function filterUsers(){
   renderUsers(filtered);
 }
 
-async function toggleUser(id){try{const r=await apiFetch(`/admin/users/${id}/toggle-active`,{method:"PATCH"});showToast(`User ${r.is_active?"activated":"deactivated"}`,"info");loadUsers()}catch(e){showToast(e.message,"error")}}
+async function toggleUser(id){
+  const user=allUsers.find(u=>u.id===id);
+  if(!user)return;
+  try{
+    const r=await apiFetch(`/admin/users/${id}/block?blocked=${user.is_active}`,{method:"PATCH"});
+    showToast(`User ${r.is_active?"activated":"deactivated"}`,"info");
+    loadUsers();
+  }catch(e){showToast(e.message,"error")}
+}
 
 let farmerConversions=[];
 async function loadConversions(){

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from math import radians, cos, sin, asin, sqrt
 from app.core.database import get_db
@@ -33,7 +34,7 @@ async def create_product(data: ProductCreate, current_user: User = Depends(requi
         d["quantity_kg"] = d["quantity_kg"] * 1000
     elif unit == "gram":
         d["quantity_kg"] = d["quantity_kg"] / 1000
-    product = Product(farmer_id=current_user.id, **d)
+    product = Product(farmer_id=current_user.id, farmer=current_user, **d)
     db.add(product); await db.flush(); await db.refresh(product)
     return ProductOut.model_validate(product)
 
@@ -51,7 +52,7 @@ async def list_products(category: Optional[str]=None, district: Optional[str]=No
     if max_price is not None: filters.append(Product.price_per_kg <= max_price)
     if is_organic is not None: filters.append(Product.is_organic == is_organic)
     if farmer_id is not None: filters.append(Product.farmer_id == farmer_id)
-    result = await db.execute(select(Product).where(and_(*filters)).offset(offset).limit(limit))
+    result = await db.execute(select(Product).options(selectinload(Product.farmer)).where(and_(*filters)).offset(offset).limit(limit))
     out = []
     for p in result.scalars().all():
         po = ProductOut.model_validate(p)
@@ -82,7 +83,7 @@ async def recommended_products(
     if max_price is not None: filters.append(Product.price_per_kg <= max_price)
     if is_organic is not None: filters.append(Product.is_organic == is_organic)
 
-    result = await db.execute(select(Product).where(and_(*filters)).limit(100))
+    result = await db.execute(select(Product).options(selectinload(Product.farmer)).where(and_(*filters)).limit(100))
     products = []
     for p in result.scalars().all():
         po = ProductOut.model_validate(p)
@@ -114,12 +115,12 @@ async def my_products(current_user: User = Depends(require_marketplace_user), db
         Product.is_active == True,
         Product.status == "available",
     ]
-    result = await db.execute(select(Product).where(and_(*filters)))
+    result = await db.execute(select(Product).options(selectinload(Product.farmer)).where(and_(*filters)))
     return [ProductOut.model_validate(p) for p in result.scalars().all()]
 
 @router.get("/{product_id}", response_model=ProductOut)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Product).where(Product.id == product_id))
+    result = await db.execute(select(Product).options(selectinload(Product.farmer)).where(Product.id == product_id))
     p = result.scalar_one_or_none()
     if not p: raise HTTPException(404, "Product not found")
     p.views_count += 1; await db.flush()
@@ -127,7 +128,7 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{product_id}", response_model=ProductOut)
 async def update_product(product_id: int, data: ProductUpdate, current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Product).where(Product.id == product_id, Product.farmer_id == current_user.id))
+    result = await db.execute(select(Product).options(selectinload(Product.farmer)).where(Product.id == product_id, Product.farmer_id == current_user.id))
     p = result.scalar_one_or_none()
     if not p: raise HTTPException(404, "Product not found")
     updates = data.model_dump(exclude_unset=True)

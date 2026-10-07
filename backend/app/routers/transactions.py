@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import uuid, hmac, hashlib
 from datetime import datetime
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.security import get_current_user, require_buyer, require_farmer, require_marketplace_user
+from app.core.security import get_current_user, require_marketplace_user
 from app.models.user import User
 from app.models.demand import Demand
 from app.models.product import Product
@@ -15,10 +16,32 @@ from app.models.payment import Payment, Agreement, Rating
 from app.routers.chat import push_order_status_update
 from app.schemas import DemandCreate, DemandOut, OrderCreate, OrderOut, OrderStatusUpdate, PaymentCreate, PaymentVerify, RatingCreate, RatingOut
 
+
+def serialize_order(o, product_name: Optional[str] = None):
+    return {
+        "id": o.id,
+        "order_number": o.order_number,
+        "farmer_id": o.farmer_id,
+        "buyer_id": o.buyer_id,
+        "product_name": product_name or (o.product.name if getattr(o, "product", None) and o.product else (o.demand.product_name if getattr(o, "demand", None) and o.demand else None)),
+        "quantity_kg": o.quantity_kg,
+        "price_per_kg": o.price_per_kg,
+        "total_amount": o.total_amount,
+        "platform_fee": o.platform_fee,
+        "net_amount": o.net_amount,
+        "status": o.status,
+        "delivery_address": o.delivery_address,
+        "district": o.district,
+        "latitude": o.latitude,
+        "longitude": o.longitude,
+        "notes": o.notes,
+        "created_at": o.created_at,
+    }
+
 demand_router = APIRouter(prefix="/demands", tags=["Demands"])
 
 @demand_router.post("/", response_model=DemandOut, status_code=201)
-async def create_demand(data: DemandCreate, current_user: User = Depends(require_buyer), db: AsyncSession = Depends(get_db)):
+async def create_demand(data: DemandCreate, current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
     d = Demand(buyer_id=current_user.id, **data.model_dump()); db.add(d); await db.flush(); await db.refresh(d)
     return DemandOut.model_validate(d)
 
@@ -31,7 +54,7 @@ async def list_demands(category: Optional[str]=None, district: Optional[str]=Non
     return [DemandOut.model_validate(d) for d in result.scalars().all()]
 
 @demand_router.get("/my", response_model=List[DemandOut])
-async def my_demands(current_user: User = Depends(require_buyer), db: AsyncSession = Depends(get_db)):
+async def my_demands(current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Demand).where(Demand.buyer_id == current_user.id))
     return [DemandOut.model_validate(d) for d in result.scalars().all()]
 
@@ -41,11 +64,13 @@ order_router = APIRouter(prefix="/orders", tags=["Orders"])
 async def create_order(data: OrderCreate, current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
     # Reduce product stock when buying from an existing listing
     product = None
+    product_name = None
     if data.product_id:
         pr = await db.execute(select(Product).where(Product.id == data.product_id))
         product = pr.scalar_one_or_none()
         if not product:
             raise HTTPException(404, "Product not found")
+        product_name = product.name
         if product.farmer_id == current_user.id:
             raise HTTPException(400, "You cannot buy your own product")
         if data.farmer_id != product.farmer_id:
@@ -67,24 +92,25 @@ async def create_order(data: OrderCreate, current_user: User = Depends(require_m
         await db.flush()
     await db.refresh(order)
     await push_order_status_update(db, order.id, order.status, current_user.id)
-    return OrderOut.model_validate(order)
+    return OrderOut.model_validate(serialize_order(order, product_name or None))
 
 @order_router.get("/", response_model=List[OrderOut])
 async def list_orders(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Order).where(or_(Order.farmer_id==current_user.id, Order.buyer_id==current_user.id)).order_by(Order.created_at.desc()))
-    return [OrderOut.model_validate(o) for o in result.scalars().all()]
+    result = await db.execute(select(Order).options(selectinload(Order.product), selectinload(Order.demand)).where(or_(Order.farmer_id==current_user.id, Order.buyer_id==current_user.id)).order_by(Order.created_at.desc()))
+    orders = result.scalars().all()
+    return [OrderOut.model_validate(serialize_order(o)) for o in orders]
 
 @order_router.get("/{order_id}", response_model=OrderOut)
 async def get_order(order_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Order).where(Order.id == order_id))
+    result = await db.execute(select(Order).options(selectinload(Order.product), selectinload(Order.demand)).where(Order.id == order_id))
     o = result.scalar_one_or_none()
     if not o: raise HTTPException(404, "Order not found")
     if o.farmer_id != current_user.id and o.buyer_id != current_user.id: raise HTTPException(403, "Not your order")
-    return OrderOut.model_validate(o)
+    return OrderOut.model_validate(serialize_order(o))
 
 @order_router.patch("/{order_id}/status", response_model=OrderOut)
 async def update_order_status(order_id: int, data: OrderStatusUpdate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Order).where(Order.id == order_id))
+    result = await db.execute(select(Order).options(selectinload(Order.product), selectinload(Order.demand)).where(Order.id == order_id))
     o = result.scalar_one_or_none()
     if not o: raise HTTPException(404, "Order not found")
     if current_user.id not in (o.farmer_id, o.buyer_id):
@@ -117,7 +143,7 @@ async def update_order_status(order_id: int, data: OrderStatusUpdate, current_us
                 await db.flush()
     await db.flush()
     await push_order_status_update(db, o.id, o.status, current_user.id)
-    return OrderOut.model_validate(o)
+    return OrderOut.model_validate(serialize_order(o))
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 

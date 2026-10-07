@@ -4,9 +4,13 @@ pytestmark = pytest.mark.asyncio
 
 class TestRegister:
     async def test_register_farmer(self, client: AsyncClient):
-        r = await client.post("/api/v1/auth/register", json={"full_name":"Ravi","phone":"9200000001","password":"test1234","role":"farmer"})
+        r = await client.post("/api/v1/auth/register", json={"full_name":"Ravi","phone":"9200000001","email":"ravi@example.com","password":"test1234","role":"farmer"})
         assert r.status_code == 201
         assert "access_token" in r.json()
+
+    async def test_register_requires_email(self, client: AsyncClient):
+        r = await client.post("/api/v1/auth/register", json={"full_name":"No Email","phone":"9200000005","password":"test1234","role":"farmer"})
+        assert r.status_code == 422
 
     async def test_register_buyer_role_is_allowed(self, client: AsyncClient):
         r = await client.post("/api/v1/auth/register", json={"full_name":"Buyer One","phone":"9200000009","password":"test1234","role":"buyer"})

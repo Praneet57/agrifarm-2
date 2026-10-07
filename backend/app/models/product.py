@@ -28,3 +28,7 @@ class Product(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     farmer = relationship("User", back_populates="products")
     orders = relationship("Order", back_populates="product")
+
+    @property
+    def farmer_name(self):
+        return self.farmer.full_name if self.farmer else None
