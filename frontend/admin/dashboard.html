@@ -1,8 +1,8 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css"/><style>.tbl{width:100%;border-collapse:collapse;font-size:.88rem}.tbl th{background:var(--green);color:white;padding:.7rem .9rem;text-align:left}.tbl td{padding:.65rem .9rem;border-bottom:1px solid var(--border)}.tbl tr:hover td{background:var(--green-pale)}</style></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css?v=8"/><style>.tbl{width:100%;border-collapse:collapse;font-size:.88rem}.tbl th{background:var(--green);color:white;padding:.7rem .9rem;text-align:left}.tbl td{padding:.65rem .9rem;border-bottom:1px solid var(--border)}.tbl tr:hover td{background:var(--green-pale)}</style></head>
 <body>
 <nav class="navbar"><div style="display:flex;align-items:center;gap:.5rem"><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket <span style="font-size:.7rem;opacity:.7;margin-left:.3rem">ADMIN</span></a>
   <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button></div>
-  <div style="display:flex;align-items:center;gap:1rem"><span style="color:rgba(255,255,255,.8);font-size:.9rem" id="admin-name"></span><a href="#" onclick="logout()" style="color:rgba(255,255,255,.7);font-size:.85rem;text-decoration:none">Logout</a></div>
+  <div style="display:flex;align-items:center;gap:.75rem"><span style="color:rgba(255,255,255,.8);font-size:.9rem" id="admin-name"></span><button class="orders-nav-btn" type="button" aria-label="Manage orders" title="Manage orders" onclick="show('orders')">🛒</button><a href="#" onclick="logout()" style="color:rgba(255,255,255,.7);font-size:.85rem;text-decoration:none">Logout</a></div>
 </nav>
 <div class="dashboard-layout">
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
@@ -11,6 +11,7 @@
     <a class="sidebar-item" onclick="show('users')"><span class="icon">👥</span> Users</a>
     <a class="sidebar-item" onclick="show('conversions')"><span class="icon">🌱</span> Farmer Requests</a>
     <a class="sidebar-item" onclick="show('products')"><span class="icon">🌿</span> Products</a>
+    <a class="sidebar-item" id="n-support" onclick="show('support')"><span class="icon">🎧</span> Customer care</a>
     <a class="sidebar-item" onclick="show('orders')"><span class="icon">📦</span> Orders</a>
   </aside>
   <main class="main-content">
@@ -125,6 +126,12 @@
       </tr></thead><tbody id="products-body"><tr><td colspan="11" style="text-align:center;padding:2rem;color:var(--muted)">Loading…</td></tr></tbody></table></div>
     </section>
 
+    <section id="s-support" style="display:none">
+      <div class="row-between" style="margin-bottom:1rem;gap:1rem"><div><h2 class="section-title" style="margin:0 0 .35rem">🎧 Customer care inbox</h2><p class="text-sm text-muted">Buyer messages sent from order tracking.</p></div>
+        <div style="display:flex;gap:.5rem;align-items:center"><select id="support-status-filter" class="form-control" onchange="loadAdminSupportTickets()"><option value="">All conversations</option><option value="open">Open</option><option value="awaiting_customer">Awaiting customer</option><option value="resolved">Resolved</option></select><button class="btn btn-gray btn-sm" type="button" onclick="loadAdminSupportTickets()">↻ Refresh</button></div>
+      </div>
+      <div class="admin-support-layout"><div id="admin-support-ticket-list" class="admin-support-ticket-list" aria-live="polite"></div><div id="admin-support-thread" class="card admin-support-thread"><div class="buyer-orders-empty">Choose a customer-care conversation.</div></div></div>
+    </section>
     <section id="s-orders" style="display:none">
       <div class="row-between" style="margin-bottom:1rem"><h2 class="section-title" style="margin:0">📦 Orders Management</h2>
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
@@ -148,7 +155,7 @@
   </main>
 </div>
 
-<script src="/static/js/api.js?v=2"></script>
+<script src="/static/js/api.js?v=6"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 if(!requireAuth())throw new Error();
@@ -161,7 +168,7 @@ document.body.innerHTML = "<div style='padding:2rem;font-family:system-ui'>Admin
 }
 document.getElementById("admin-name").textContent=user.full_name;
 
-let allUsers=[],allOrders=[],orderFilter="";
+let allUsers=[],allOrders=[],orderFilter="",adminSupportTickets=[],selectedSupportTicket=null;
 let kpiRange='today';
 let charts={};
 
@@ -189,6 +196,7 @@ function show(name){
   if(name==="conversions")loadConversions();
   if(name==="products")loadProducts();
   if(name==="orders"&&!allOrders.length)loadOrders();
+  if(name==="support")loadAdminSupportTickets();
   // close mobile sidebar after navigation
   if(window.innerWidth<=768){
     var sidebar=document.getElementById("sidebar");
@@ -196,6 +204,62 @@ function show(name){
     if(sidebar)sidebar.classList.remove("mobile-open");
     if(overlay)overlay.classList.remove("open");
   }
+}
+
+async function loadAdminSupportTickets(){
+  const list=document.getElementById("admin-support-ticket-list");
+  list.innerHTML='<div class="buyer-orders-empty">Loading customer messages…</div>';
+  try{
+    const status=document.getElementById("support-status-filter").value;
+    adminSupportTickets=await API.adminSupportTickets(status);
+    if(!adminSupportTickets.length){
+      selectedSupportTicket=null;
+      list.innerHTML='<div class="buyer-orders-empty"><div>🎧</div><strong>No conversations</strong><p>There are no support messages for this filter.</p></div>';
+      document.getElementById("admin-support-thread").innerHTML='<div class="buyer-orders-empty">Choose a customer-care conversation.</div>';
+      return;
+    }
+    list.innerHTML=adminSupportTickets.map(ticket=>{
+      const latest=ticket.messages[ticket.messages.length-1];
+      return `<button class="admin-support-ticket ${selectedSupportTicket?.id===ticket.id?"active":""}" type="button" onclick="openAdminSupportTicket(${Number(ticket.id)})"><strong>${escapeHtml(ticket.subject)}</strong><span>${escapeHtml(ticket.customer_name)}${ticket.order_number?` · ${escapeHtml(ticket.order_number)}`:""}</span><small>${escapeHtml(ticket.status.replaceAll("_"," "))} · ${escapeHtml(latest?.message||"")}</small></button>`;
+    }).join("");
+    if(selectedSupportTicket&&!adminSupportTickets.some(ticket=>ticket.id===selectedSupportTicket.id))selectedSupportTicket=null;
+  }catch(error){list.innerHTML=`<div class="buyer-orders-empty buyer-orders-error">${escapeHtml(error.message)}</div>`}
+}
+
+async function openAdminSupportTicket(ticketId){
+  try{
+    selectedSupportTicket=await API.getSupportTicket(ticketId);
+    const target=document.getElementById("admin-support-thread");
+    const ticket=selectedSupportTicket;
+    target.innerHTML=`<header class="admin-support-thread-head"><div><span class="buyer-order-number">${ticket.order_number?`Order ${escapeHtml(ticket.order_number)}`:"General support"}</span><h3>${escapeHtml(ticket.subject)}</h3><p class="text-sm text-muted">${escapeHtml(ticket.customer_name)} · ${escapeHtml(ticket.customer_phone)} · ${escapeHtml(ticket.status.replaceAll("_"," "))}</p></div><button class="btn btn-gray btn-sm" type="button" onclick="resolveAdminSupportTicket(${Number(ticket.id)})" ${ticket.status==="resolved"?"disabled":""}>Mark resolved</button></header>
+      <div class="admin-support-messages">${ticket.messages.map(message=>`<article class="buyer-support-message ${message.sender_role==="admin"?"mine":"theirs"}"><div class="buyer-support-message-meta">${escapeHtml(message.sender_name)} · ${message.sender_role==="admin"?"Admin":"Customer"} · ${formatDate(message.created_at)}</div><p>${escapeHtml(message.message)}</p></article>`).join("")}</div>
+      <form class="admin-support-reply" onsubmit="replyToAdminSupport(event)"><label for="admin-support-reply-input">Reply to customer</label><textarea id="admin-support-reply-input" class="form-control" rows="3" maxlength="4000" required placeholder="Write a reply"></textarea><button class="btn btn-green" type="submit">Send reply</button></form>`;
+    await loadAdminSupportTickets();
+  }catch(error){showToast(error.message||"Could not load this conversation","error")}
+}
+
+async function replyToAdminSupport(event){
+  event.preventDefault();
+  if(!selectedSupportTicket)return;
+  const input=document.getElementById("admin-support-reply-input");
+  const message=input.value.trim();
+  if(!message)return;
+  try{
+    const ticketId=selectedSupportTicket.id;
+    selectedSupportTicket=await API.replySupportTicket(ticketId,message);
+    await openAdminSupportTicket(ticketId);
+    showToast("Reply sent to customer","success");
+  }catch(error){showToast(error.message,"error")}
+}
+
+async function resolveAdminSupportTicket(ticketId){
+  try{
+    selectedSupportTicket=await API.adminUpdateSupportTicket(ticketId,"resolved");
+    const status=document.getElementById("support-status-filter").value;
+    await loadAdminSupportTickets();
+    if(!status||status==="resolved")await openAdminSupportTicket(ticketId);
+    showToast("Conversation marked resolved","success");
+  }catch(error){showToast(error.message,"error")}
 }
 
 function upsertChart(key,config){

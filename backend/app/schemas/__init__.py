@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -17,6 +17,7 @@ class UserRegister(BaseModel):
     email: Optional[EmailStr] = None
     password: str = Field(..., min_length=6)
     role: UserRole
+    preferred_language: Literal["en", "ta", "te"] = "en"
     village: Optional[str] = None
     district: Optional[str] = None
     state: Optional[str] = None
@@ -43,6 +44,7 @@ class UserOut(BaseModel):
     phone: str
     email: Optional[str]
     role: str
+    preferred_language: Literal["en", "ta", "te"] = "en"
     village: Optional[str]
     district: Optional[str]
     state: Optional[str]
@@ -82,6 +84,7 @@ class UserUpdate(BaseModel):
     state: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    preferred_language: Optional[Literal["en", "ta", "te"]] = None
 
 
 class ProductCreate(BaseModel):
@@ -101,6 +104,7 @@ class ProductCreate(BaseModel):
 
     is_organic: bool = False
     harvest_date: Optional[datetime] = None
+    expiry_date: Optional[datetime] = None
 
     image_url: Optional[str] = None
 
@@ -112,6 +116,8 @@ class ProductUpdate(BaseModel):
     price_per_kg: Optional[float] = None
     min_order_kg: Optional[float] = None
     is_organic: Optional[bool] = None
+    harvest_date: Optional[datetime] = None
+    expiry_date: Optional[datetime] = None
     status: Optional[str] = None
     image_url: Optional[str] = None
 
@@ -136,6 +142,8 @@ class ProductOut(BaseModel):
 
     image_url: Optional[str]
     is_organic: bool
+    harvest_date: Optional[datetime] = None
+    expiry_date: Optional[datetime] = None
     views_count: int
     created_at: datetime
 
@@ -218,6 +226,11 @@ class OrderOut(BaseModel):
     notes: Optional[str]
 
     created_at: datetime
+    accepted_at: Optional[datetime] = None
+    paid_at: Optional[datetime] = None
+    dispatched_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

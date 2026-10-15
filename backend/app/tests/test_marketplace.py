@@ -5,8 +5,11 @@ pytestmark = pytest.mark.asyncio
 class TestProducts:
     async def test_create_product(self, client: AsyncClient, farmer_token):
         r = await client.post("/api/v1/products", headers={"Authorization": f"Bearer {farmer_token}"},
-            json={"name":"Test Mangoes","category":"Fruits","quantity_kg":500,"price_per_kg":120,"is_organic":True})
+            json={"name":"Test Mangoes","category":"Fruits","quantity_kg":500,"price_per_kg":120,"is_organic":True,
+                  "harvest_date":"2026-10-01T00:00:00Z","expiry_date":"2026-10-15T00:00:00Z"})
         assert r.status_code == 201; assert r.json()["name"] == "Test Mangoes"
+        assert r.json()["harvest_date"].startswith("2026-10-01")
+        assert r.json()["expiry_date"].startswith("2026-10-15")
 
     async def test_buyer_can_create_product(self, client: AsyncClient, buyer_token):
         r = await client.post("/api/v1/products", headers={"Authorization": f"Bearer {buyer_token}"},
@@ -47,6 +50,61 @@ class TestDemands:
         assert r.status_code == 403
 
 class TestOrders:
+    async def test_chat_rooms_show_participant_and_latest_message(self, client: AsyncClient, farmer_token, buyer_token, db):
+        from app.models.payment import ChatMessage
+
+        farmer = (await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"})).json()
+        buyer = (await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {buyer_token}"})).json()
+        product = await client.post(
+            "/api/v1/products",
+            headers={"Authorization": f"Bearer {farmer_token}"},
+            json={"name": "Chat Test Rice", "category": "Grains", "quantity_kg": 100, "price_per_kg": 45},
+        )
+        order = await client.post(
+            "/api/v1/orders",
+            headers={"Authorization": f"Bearer {buyer_token}"},
+            json={
+                "product_id": product.json()["id"],
+                "farmer_id": farmer["id"],
+                "quantity_kg": 20,
+                "price_per_kg": 45,
+                "delivery_address": "Home",
+                "district": "Coimbatore",
+            },
+        )
+        assert order.status_code == 201
+
+        db.add_all(
+            [
+                ChatMessage(
+                    order_id=order.json()["id"],
+                    sender_id=buyer["id"],
+                    message="Hello",
+                    message_type="text",
+                ),
+                ChatMessage(
+                    order_id=order.json()["id"],
+                    sender_id=buyer["id"],
+                    message="Can you deliver tomorrow?",
+                    message_type="text",
+                ),
+            ]
+        )
+        await db.flush()
+
+        rooms = await client.get(
+            "/api/v1/chat/rooms/my",
+            headers={"Authorization": f"Bearer {farmer_token}"},
+        )
+
+        assert rooms.status_code == 200
+        room = next(item for item in rooms.json() if item["order_id"] == order.json()["id"])
+        assert room["participant_name"] == buyer["full_name"]
+        assert room["last_message"] == "Can you deliver tomorrow?"
+        assert room["last_message_sender_id"] == buyer["id"]
+        assert room["unread_count"] == 2
+        assert room["last_message_at"] is not None
+
     async def test_order_payload_returns_product_name(self, client: AsyncClient, farmer_token, buyer_token):
         farmer_me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"})
         farmer_id = farmer_me.json()["id"]

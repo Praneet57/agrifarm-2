@@ -1,6 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, update
+from sqlalchemy import select, and_, update, case, func
+from sqlalchemy.orm import aliased
 from typing import Dict, List
 import json
 from datetime import datetime
@@ -84,6 +85,7 @@ async def websocket_chat(websocket: WebSocket, order_id: int, token: str):
                     db.add(msg); await db.flush(); await db.refresh(msg)
                     cat = msg.created_at.isoformat() if msg.created_at else datetime.utcnow().isoformat()
                     mid = msg.id
+                    await db.commit()
                 await manager.broadcast(room_id, {"type":"message","id":mid,"order_id":order_id,"sender_id":user_id,"message":data.get("message",""),"message_type":data.get("message_type","text"),"created_at":cat})
             elif data.get("type") == "typing":
                 await manager.broadcast(room_id, {"type":"typing","user_id":user_id,"is_typing":data.get("is_typing",False)}, exclude=user_id)
@@ -103,7 +105,77 @@ async def get_messages(order_id: int, limit: int=50, offset: int=0, current_user
 
 @router.get("/rooms/my")
 async def my_chat_rooms(current_user: User=Depends(get_current_user), db: AsyncSession=Depends(get_db)):
-    result = await db.execute(select(Order).where(Order.farmer_id==current_user.id if True else Order.buyer_id==current_user.id))
-    from sqlalchemy import or_
-    result = await db.execute(select(Order).where(or_(Order.farmer_id==current_user.id,Order.buyer_id==current_user.id)).order_by(Order.created_at.desc()))
-    return [{"order_id":o.id,"order_number":o.order_number,"room_id":f"order_{o.id}","status":o.status,"is_online":len(manager.online_users(f"order_{o.id}"))>1} for o in result.scalars().all()]
+    other_user_id = case(
+        (Order.farmer_id == current_user.id, Order.buyer_id),
+        else_=Order.farmer_id,
+    )
+    latest_message_row = aliased(ChatMessage)
+    latest_message = (
+        select(latest_message_row.message)
+        .where(latest_message_row.order_id == Order.id)
+        .order_by(latest_message_row.created_at.desc(), latest_message_row.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    latest_message_sender_id = (
+        select(latest_message_row.sender_id)
+        .where(latest_message_row.order_id == Order.id)
+        .order_by(latest_message_row.created_at.desc(), latest_message_row.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    latest_message_at = (
+        select(latest_message_row.created_at)
+        .where(latest_message_row.order_id == Order.id)
+        .order_by(latest_message_row.created_at.desc(), latest_message_row.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    unread_count = (
+        select(func.count(ChatMessage.id))
+        .where(
+            ChatMessage.order_id == Order.id,
+            ChatMessage.sender_id != current_user.id,
+            ChatMessage.is_read.is_(False),
+        )
+        .scalar_subquery()
+    )
+    result = await db.execute(
+        select(
+            Order,
+            User.full_name,
+            latest_message,
+            latest_message_sender_id,
+            latest_message_at,
+            unread_count,
+        )
+        .join(User, User.id == other_user_id)
+        .where(
+            (Order.farmer_id == current_user.id)
+            | (Order.buyer_id == current_user.id)
+        )
+        .order_by(func.coalesce(latest_message_at, Order.created_at).desc(), Order.id.desc())
+    )
+    return [
+        {
+            "order_id": order.id,
+            "order_number": order.order_number,
+            "room_id": f"order_{order.id}",
+            "status": order.status,
+            "participant_name": participant_name,
+            "last_message": last_message,
+            "last_message_sender_id": last_message_sender_id,
+            "last_message_at": last_message_at,
+            "unread_count": unread_count,
+            "created_at": order.created_at,
+            "is_online": len(manager.online_users(f"order_{order.id}")) > 1,
+        }
+        for (
+            order,
+            participant_name,
+            last_message,
+            last_message_sender_id,
+            last_message_at,
+            unread_count,
+        ) in result.all()
+    ]

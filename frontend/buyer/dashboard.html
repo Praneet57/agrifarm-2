@@ -1,8 +1,8 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Buyer Dashboard – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css"/></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Buyer Dashboard – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css?v=8"/></head>
 <body>
 <nav class="navbar"><div style="display:flex;align-items:center;gap:.5rem"><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket</a>
   <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button></div>
-  <div style="display:flex;align-items:center;gap:.75rem"><div class="avatar" id="nav-avatar">B</div><span style="color:white;font-size:.9rem" id="nav-name"></span><a href="#" onclick="logout()" style="color:rgba(255,255,255,0.7);font-size:.85rem;text-decoration:none">Logout</a></div>
+  <div style="display:flex;align-items:center;gap:.75rem"><div class="avatar" id="nav-avatar">B</div><span style="color:white;font-size:.9rem" id="nav-name"></span><button class="orders-nav-btn" type="button" aria-label="Track my purchases" title="Track my purchases" onclick="show('orders')">🛒</button><a href="#" onclick="logout()" style="color:rgba(255,255,255,0.7);font-size:.85rem;text-decoration:none">Logout</a></div>
 </nav>
 <div class="dashboard-layout">
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
@@ -12,7 +12,7 @@
     <a class="sidebar-item" href="#" onclick="openFarmerConversion();return false"><span class="icon">🌱</span> Convert to Farmer</a>
     <a class="sidebar-item" id="n-demands" onclick="show('demands')"><span class="icon">📢</span> My Demands</a>
     <a class="sidebar-item" id="n-post" onclick="show('post')"><span class="icon">➕</span> Post Demand</a>
-    <a class="sidebar-item" id="n-orders" onclick="show('orders')"><span class="icon">📦</span> My Orders</a>
+    <a class="sidebar-item" id="n-orders" onclick="show('orders')"><span class="icon">📦</span> Purchases &amp; Tracking</a>
     <a class="sidebar-item" id="n-chat" onclick="show('chat')"><span class="icon">💬</span> Messages</a>
     <a class="sidebar-item" id="n-profile" onclick="show('profile')"><span class="icon">👤</span> Profile</a>
   </aside>
@@ -78,7 +78,17 @@
       </div></div>
     </section>
 
-    <section id="s-orders" style="display:none"><h2 class="section-title">📦 My Orders</h2><div id="orders-list"></div></section>
+    <section id="s-orders" style="display:none">
+      <div class="buyer-orders-heading">
+        <div><h2 class="section-title" style="margin-bottom:.35rem">🛒 Purchase tracking</h2><p class="text-sm text-muted">Track purchases you placed here. Farmer order processing is managed separately.</p></div>
+        <button class="btn btn-outline-green btn-sm" type="button" onclick="loadOrders()">↻ Refresh</button>
+      </div>
+      <div class="buyer-order-tabs" role="tablist" aria-label="Purchase history">
+        <button id="buyer-orders-recent-tab" class="buyer-order-tab active" type="button" role="tab" aria-selected="true" onclick="setBuyerOrderView('recent')">Recent orders <span id="buyer-orders-recent-count">0</span></button>
+        <button id="buyer-orders-past-tab" class="buyer-order-tab" type="button" role="tab" aria-selected="false" onclick="setBuyerOrderView('past')">Past orders <span id="buyer-orders-past-count">0</span></button>
+      </div>
+      <div id="orders-list" aria-live="polite"></div>
+    </section>
     <section id="s-chat" style="display:none"><h2 class="section-title">💬 Messages</h2><div id="chat-rooms"></div></section>
 
     <section id="s-profile" style="display:none">
@@ -170,7 +180,7 @@
   window.GOOGLE_MAPS_KEY = window.GOOGLE_MAPS_KEY || "AIzaSyCxPrZozVZhaON7D8wz5C1AIt7bOPuKcvs";
 </script>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-<script src="/static/js/api.js?v=2"></script>
+<script src="/static/js/api.js?v=5"></script>
 <script>
 if(!requireAuth()){ /* redirected to login */ }
 const user=getUser();
@@ -346,7 +356,8 @@ async function showFarmer(id){
 // ── Overview tab ──────────────────────────────────────────────────────────
 async function loadOverview(){
   try{
-    const[ds,os,ps]=await Promise.all([API.myDemands(),API.listOrders(),API.listProducts({limit:4})]);
+    const[ds,allOrders,ps]=await Promise.all([API.myDemands(),API.listOrders(),API.listProducts({limit:4})]);
+    const os=allOrders.filter(o=>Number(o.buyer_id)===Number(user.id));
     document.getElementById("st-d").textContent=ds.filter(d=>d.status==="open").length;
     document.getElementById("st-o").textContent=os.length;
     document.getElementById("st-pend").textContent=os.filter(o=>o.status==="pending").length;
@@ -563,15 +574,94 @@ async function submitFarmerConversion(){
   try{await API.requestFarmerConversion(true);document.getElementById("farmer-conversion-status").textContent="⏳ Request sent. An admin will review your details and transaction history.";showToast("Request sent to admin","success")}catch(e){showToast(e.message,"error")}finally{btn.disabled=false;btn.innerHTML="Send Request to Admin"}
 }
 
-// ── Orders ────────────────────────────────────────────────────────────────
+// ── Buyer purchase tracking ────────────────────────────────────────────────
+let buyerOrders=[];
+let buyerOrderView="recent";
+const finishedBuyerOrderStatuses=new Set(["completed","cancelled","rejected"]);
+const buyerOrderProgress=[
+  {label:"Placed",statuses:["pending","accepted","payment_pending","paid","in_transit","delivered","completed"]},
+  {label:"Accepted",statuses:["accepted","payment_pending","paid","in_transit","delivered","completed"]},
+  {label:"Paid",statuses:["paid","in_transit","delivered","completed"]},
+  {label:"Dispatched",statuses:["in_transit","delivered","completed"]},
+  {label:"Delivered",statuses:["delivered","completed"]}
+];
+
+function setBuyerOrderView(view){
+  buyerOrderView=view==="past"?"past":"recent";
+  renderBuyerOrders();
+}
+
+function renderBuyerOrderProgress(status){
+  if(["cancelled","rejected"].includes(status)){
+    return `<div class="buyer-order-cancelled">${status==="cancelled"?"This order was cancelled.":"The farmer could not accept this order."}</div>`;
+  }
+  const progressStatus=status==="disputed"?"delivered":status;
+  const activeStep=buyerOrderProgress.findIndex(step=>!step.statuses.includes(progressStatus));
+  return `<ol class="buyer-order-progress" aria-label="Order progress">${buyerOrderProgress.map((step,index)=>{
+    const done=step.statuses.includes(progressStatus);
+    const current=index===activeStep;
+    return `<li class="${done?"done":""} ${current?"current":""}"><span class="buyer-order-step-dot" aria-hidden="true">${done?"✓":index+1}</span><span>${step.label}</span></li>`;
+  }).join("")}</ol>${status==="disputed"?'<div class="buyer-order-note">This order is under review.</div>':""}`;
+}
+
+function renderBuyerOrderCard(o){
+  const status=String(o.status||"").toLowerCase();
+  const productName=escapeHtml(o.product_name||"Order item");
+  const orderNumber=escapeHtml(o.order_number||`#${o.id}`);
+  const delivery=escapeHtml(o.delivery_address||o.district||"Address not set");
+  const note=o.notes?`<div><dt>Order note</dt><dd>${escapeHtml(o.notes)}</dd></div>`:"";
+  return `<article class="card buyer-order-card">
+    <header class="buyer-order-card-header"><div><span class="buyer-order-number">Order ${orderNumber}</span><h3>${productName}</h3><span class="text-sm text-muted">Placed ${formatDate(o.created_at)}</span></div>${statusBadge(status)}</header>
+    <div class="buyer-order-card-body">
+      ${renderBuyerOrderProgress(status)}
+      <div class="buyer-order-summary"><div><span class="text-sm text-muted">Quantity</span><strong>${escapeHtml(o.quantity_kg)} kg</strong></div><div><span class="text-sm text-muted">Order total</span><strong>${formatCurrency(o.total_amount)}</strong></div></div>
+      <details class="buyer-order-details"><summary>View order details</summary><dl>
+        <div><dt>Order number</dt><dd>${orderNumber}</dd></div><div><dt>Price per kg</dt><dd>${formatCurrency(o.price_per_kg)}</dd></div>
+        <div><dt>Delivery address</dt><dd>${delivery}</dd></div>${o.district?`<div><dt>District</dt><dd>${escapeHtml(o.district)}</dd></div>`:""}
+        ${o.latitude!=null&&o.longitude!=null?`<div><dt>Delivery coordinates</dt><dd>${Number(o.latitude).toFixed(5)}, ${Number(o.longitude).toFixed(5)}</dd></div>`:""}${note}
+      </dl></details>
+    </div>
+    <footer class="buyer-order-actions">
+      ${["accepted","payment_pending"].includes(status)?`<button class="btn btn-green btn-sm" onclick="payOrder(${Number(o.id)})">💳 ${status==="accepted"?"Pay now":"Complete payment"}</button>`:""}
+      ${status==="delivered"?`<button class="btn btn-green btn-sm" onclick="confirmReceipt(${Number(o.id)})">✅ Confirm receipt</button>`:""}
+      ${status==="pending"?`<button class="btn btn-danger btn-sm" onclick="cancelOrder(${Number(o.id)})">Cancel order</button>`:""}
+      <a href="/chat.html?order_id=${Number(o.id)}" class="btn btn-outline-green btn-sm">💬 Contact farmer</a>
+      <button class="btn btn-gray btn-sm" onclick="genPDF(${Number(o.id)})">📄 Agreement</button>
+      ${status==="completed"?`<button class="btn btn-amber btn-sm" onclick="rateOrder(${Number(o.id)},${Number(o.farmer_id)})">⭐ Rate farmer</button>`:""}
+    </footer>
+  </article>`;
+}
+
+function renderBuyerOrders(){
+  const recent=buyerOrders.filter(o=>!finishedBuyerOrderStatuses.has(String(o.status||"").toLowerCase()));
+  const past=buyerOrders.filter(o=>finishedBuyerOrderStatuses.has(String(o.status||"").toLowerCase()));
+  document.getElementById("buyer-orders-recent-count").textContent=recent.length;
+  document.getElementById("buyer-orders-past-count").textContent=past.length;
+  const recentTab=document.getElementById("buyer-orders-recent-tab");
+  const pastTab=document.getElementById("buyer-orders-past-tab");
+  recentTab.classList.toggle("active",buyerOrderView==="recent");
+  recentTab.setAttribute("aria-selected",String(buyerOrderView==="recent"));
+  pastTab.classList.toggle("active",buyerOrderView==="past");
+  pastTab.setAttribute("aria-selected",String(buyerOrderView==="past"));
+  const orders=buyerOrderView==="past"?past:recent;
+  const el=document.getElementById("orders-list");
+  if(!orders.length){
+    el.innerHTML=buyerOrderView==="recent"
+      ?'<div class="buyer-orders-empty"><div aria-hidden="true">📦</div><strong>No recent purchases</strong><p>Your active purchase tracking will appear here.</p><button class="btn btn-green btn-sm" type="button" onclick="show(\'market\')">Browse marketplace</button></div>'
+      :'<div class="buyer-orders-empty"><div aria-hidden="true">🧾</div><strong>No past purchases yet</strong><p>Completed and cancelled purchases will appear here.</p></div>';
+    return;
+  }
+  el.innerHTML=orders.map(renderBuyerOrderCard).join("");
+}
+
 async function loadOrders(){
   const el=document.getElementById("orders-list");
-  el.innerHTML='<div style="text-align:center;padding:2rem;color:var(--muted)">Loading…</div>';
+  el.innerHTML='<div class="buyer-orders-empty">Loading your purchases…</div>';
   try{
-    const os=await API.listOrders();
-    if(!os.length){el.innerHTML='<div class="empty-state"><div class="icon">📦</div><p>No orders yet. <a href="#" onclick="show(\'market\')">Browse marketplace →</a></p></div>';return}
-    el.innerHTML=os.map(o=>`<div class="card" style="margin-bottom:1rem"><div class="card-header"><div><strong>${o.product_name || 'Order Item'}</strong><div class="text-sm text-muted">Order ID: ${o.order_number}</div><div class="text-sm text-muted">${formatDate(o.created_at)}</div></div>${statusBadge(o.status)}</div><div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem"><div><div class="text-sm text-muted">Qty</div><strong>${o.quantity_kg}kg</strong></div><div><div class="text-sm text-muted">Rate</div><strong>${formatCurrency(o.price_per_kg)}/kg</strong></div><div><div class="text-sm text-muted">You Pay</div><strong>${formatCurrency(o.total_amount)}</strong></div></div><div style="padding:0 1rem 1rem;border-top:1px solid rgba(0,0,0,.05)"><div class="text-sm text-muted" style="margin-top:.75rem;">📍 Delivery: ${o.delivery_address || o.district || 'Address not set'}</div>${o.district?`<div class="text-sm text-muted">📦 District: ${o.district}</div>`:''}${o.latitude && o.longitude ? `<div class="text-sm text-muted">🧭 ${o.latitude.toFixed(4)}, ${o.longitude.toFixed(4)}</div>` : ''}${o.product && o.product.latitude && o.product.longitude ? `<div class="text-sm text-muted">🌾 Pickup from farmer: ${o.product.latitude.toFixed(4)}, ${o.product.longitude.toFixed(4)}</div>` : ''}</div><div class="card-footer">${o.status==="accepted"?`<button class="btn btn-green btn-sm" onclick="payOrder(${o.id})">💳 Pay Now</button>`:''} ${o.status==="delivered"?`<button class="btn btn-green btn-sm" onclick="confirmReceipt(${o.id})">✅ Confirm Receipt</button>`:''} ${o.status==="pending"?`<button class="btn btn-danger btn-sm" onclick="cancelOrder(${o.id})">Cancel</button>`:''} <a href="/chat.html?order_id=${o.id}" class="btn btn-outline-green btn-sm">💬 Chat</a><button class="btn btn-gray btn-sm" onclick="genPDF(${o.id})">📄 Agreement</button>${o.status==="completed"?`<button class="btn btn-amber btn-sm" onclick="rateOrder(${o.id},${o.farmer_id})">⭐ Rate Farmer</button>`:''}</div></div>`).join("");
-  }catch(e){el.innerHTML=`<div style="color:red">${e.message}</div>`}
+    const orders=await API.listOrders();
+    buyerOrders=orders.filter(o=>Number(o.buyer_id)===Number(user.id));
+    renderBuyerOrders();
+  }catch(e){el.innerHTML=`<div class="buyer-orders-empty buyer-orders-error">${escapeHtml(e.message)}</div>`}
 }
 
 async function payOrder(id){await initiatePayment(id,()=>loadOrders())}
@@ -583,7 +673,7 @@ async function rateOrder(order_id,farmer_id){const score=prompt("Rate this farme
 // ── Chat ──────────────────────────────────────────────────────────────────
 async function loadChatRooms(){
   const el=document.getElementById("chat-rooms");
-  try{const rs=await API.myChatRooms();el.innerHTML=rs.length?rs.map(r=>`<a href="/chat.html?order_id=${r.order_id}" class="card" style="display:block;margin-bottom:.75rem;text-decoration:none;color:inherit"><div class="card-body" style="display:flex;justify-content:space-between;align-items:center"><div><strong>Order ${r.order_number}</strong><div class="text-sm text-muted">${statusBadge(r.status)}</div></div><div style="display:flex;align-items:center;gap:.5rem">${r.is_online?'<span class="online-dot"></span><span class="text-sm" style="color:#4caf50">Online</span>':'<span class="text-sm text-muted">Offline</span>'} →</div></div></a>`).join(""):'<div class="empty-state"><div class="icon">💬</div><p>No conversations yet</p></div>'}catch(e){}
+  try{const rs=await API.myChatRooms();el.innerHTML=rs.length?rs.map(r=>`<a href="/chat.html?order_id=${r.order_id}" class="card" style="display:block;margin-bottom:.75rem;text-decoration:none;color:inherit"><div class="card-body"><div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem"><strong>${escapeHtml(r.participant_name||"Chat")}</strong><span class="text-sm text-muted">${formatChatTimestamp(r.last_message_at||r.created_at)}</span></div><div class="text-sm text-muted">Order ${escapeHtml(r.order_number)} · ${statusBadge(r.status)}</div><div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-top:.35rem"><span class="text-sm text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.last_message?`${r.last_message_sender_id===user.id?"You: ":""}${escapeHtml(r.last_message)}`:"No messages yet"}</span>${r.unread_count?`<span class="status status-accepted">${r.unread_count}</span>`:""}</div><div style="margin-top:.25rem">${r.is_online?'<span class="text-sm" style="color:#4caf50">Online</span>':'<span class="text-sm text-muted">Offline</span>'}</div></div></a>`).join(""):'<div class="empty-state"><div class="icon">💬</div><p>No conversations yet</p></div>'}catch(e){el.innerHTML=`<div style="color:red">${escapeHtml(e.message)}</div>`}
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────

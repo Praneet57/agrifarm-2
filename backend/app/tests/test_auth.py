@@ -17,6 +17,15 @@ class TestRegister:
         assert r.status_code == 201
         assert r.json()["user"]["role"] == "buyer"
 
+    async def test_register_saves_preferred_language(self, client: AsyncClient):
+        r = await client.post("/api/v1/auth/register", json={"full_name":"Tamil Farmer","phone":"9200000010","password":"test1234","role":"farmer","preferred_language":"ta"})
+        assert r.status_code == 201
+        assert r.json()["user"]["preferred_language"] == "ta"
+
+    async def test_register_rejects_unsupported_language(self, client: AsyncClient):
+        r = await client.post("/api/v1/auth/register", json={"full_name":"Language Test","phone":"9200000011","password":"test1234","role":"farmer","preferred_language":"fr"})
+        assert r.status_code == 422
+
     async def test_duplicate_phone(self, client: AsyncClient):
         d = {"full_name":"X","phone":"9200000002","password":"p123456","role":"farmer"}
         await client.post("/api/v1/auth/register", json=d)
@@ -49,6 +58,11 @@ class TestProfile:
     async def test_update_profile(self, client: AsyncClient, farmer_token):
         r = await client.put("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"}, json={"bio": "Mango farmer"})
         assert r.status_code == 200
+
+    async def test_update_preferred_language(self, client: AsyncClient, farmer_token):
+        r = await client.put("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"}, json={"preferred_language": "te"})
+        assert r.status_code == 200
+        assert r.json()["preferred_language"] == "te"
 
 class TestHealth:
     async def test_health(self, client: AsyncClient):

@@ -23,6 +23,7 @@ from app.routers.transactions import (
 from app.routers.chat import router as chat_router
 from app.routers.matching import router as match_router
 from app.routers.admin import router as admin_router
+from app.routers.support import router as support_router
 
 
 @asynccontextmanager
@@ -64,6 +65,7 @@ for r in [
     match_router,
     rating_router,
     admin_router,
+    support_router,
 ]:
     app.include_router(r, prefix=P)
 
@@ -165,4 +167,3 @@ if os.path.exists(frontend_path):
 
         fp = os.path.join(frontend_path, path)
         return FileResponse(fp) if os.path.isfile(fp) else FileResponse(os.path.join(frontend_path, "index.html"))
-

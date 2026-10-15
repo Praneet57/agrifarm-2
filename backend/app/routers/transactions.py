@@ -36,6 +36,11 @@ def serialize_order(o, product_name: Optional[str] = None):
         "longitude": o.longitude,
         "notes": o.notes,
         "created_at": o.created_at,
+        "accepted_at": o.accepted_at,
+        "paid_at": o.paid_at,
+        "dispatched_at": o.dispatched_at,
+        "delivered_at": o.delivered_at,
+        "completed_at": o.completed_at,
     }
 
 demand_router = APIRouter(prefix="/demands", tags=["Demands"])
@@ -131,6 +136,7 @@ async def update_order_status(order_id: int, data: OrderStatusUpdate, current_us
     o.status = data.status
     if data.notes: o.notes = data.notes
     if data.status == "accepted": o.accepted_at = datetime.utcnow()
+    elif data.status == "in_transit": o.dispatched_at = datetime.utcnow()
     elif data.status == "delivered": o.delivered_at = datetime.utcnow()
     elif data.status == "completed": o.completed_at = datetime.utcnow()
     # Restore stock if order is cancelled or rejected

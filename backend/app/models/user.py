@@ -17,6 +17,7 @@ class User(Base):
     email = Column(String(150), unique=True, nullable=True, index=True)
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False)
+    preferred_language = Column(String(2), nullable=False, default="en", server_default="en")
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     latitude = Column(Float, nullable=True)
