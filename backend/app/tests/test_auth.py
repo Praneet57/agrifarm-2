@@ -59,6 +59,27 @@ class TestProfile:
         r = await client.put("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"}, json={"bio": "Mango farmer"})
         assert r.status_code == 200
 
+    async def test_upload_optional_profile_image(self, client: AsyncClient, farmer_token, monkeypatch, tmp_path):
+        from pathlib import Path
+        from app.routers import auth
+
+        monkeypatch.setattr(auth, "PROFILE_UPLOAD_DIR", str(tmp_path))
+        response = await client.post(
+            "/api/v1/auth/me/profile-image",
+            headers={"Authorization": f"******"},
+            files={"file": ("profile.png", b"image-data", "image/png")},
+        )
+        assert response.status_code == 200
+        assert response.json()["profile_image"].startswith("/uploads/profiles/")
+        assert len(list(Path(tmp_path).iterdir())) == 1
+        product = await client.post(
+            "/api/v1/products",
+            headers={"Authorization": f"Bearer {farmer_token}"},
+            json={"name": "Profile Image Produce", "category": "Vegetables", "quantity_kg": 10, "price_per_kg": 20},
+        )
+        assert product.status_code == 201
+        assert product.json()["farmer_profile_image"] == response.json()["profile_image"]
+
     async def test_update_preferred_language(self, client: AsyncClient, farmer_token):
         r = await client.put("/api/v1/auth/me", headers={"Authorization": f"Bearer {farmer_token}"}, json={"preferred_language": "te"})
         assert r.status_code == 200

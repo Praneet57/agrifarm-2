@@ -29,8 +29,8 @@ class UserRegister(BaseModel):
     products_to_buy: Optional[str] = None
     farm_type: Optional[str] = None
     farm_agriculture_details: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class UserLogin(BaseModel):
@@ -82,8 +82,8 @@ class UserUpdate(BaseModel):
     village: Optional[str] = None
     district: Optional[str] = None
     state: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     preferred_language: Optional[Literal["en", "ta", "te"]] = None
 
 
@@ -98,15 +98,20 @@ class ProductCreate(BaseModel):
 
     min_order_kg: float = 1.0
     district: Optional[str] = None
+    pickup_address: Optional[str] = None
 
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    broadcast_sms: bool = False
+    allow_location_based_alerts: bool = False
 
     is_organic: bool = False
     harvest_date: Optional[datetime] = None
     expiry_date: Optional[datetime] = None
 
     image_url: Optional[str] = None
+    image_urls: List[str] = Field(default_factory=list)
+    video_url: Optional[str] = None
 
 
 class ProductUpdate(BaseModel):
@@ -120,12 +125,16 @@ class ProductUpdate(BaseModel):
     expiry_date: Optional[datetime] = None
     status: Optional[str] = None
     image_url: Optional[str] = None
+    image_urls: Optional[List[str]] = None
+    video_url: Optional[str] = None
+    pickup_address: Optional[str] = None
 
 
 class ProductOut(BaseModel):
     id: int
     farmer_id: int
     farmer_name: Optional[str] = None
+    farmer_profile_image: Optional[str] = None
     name: str
     category: str
     description: Optional[str]
@@ -137,10 +146,13 @@ class ProductOut(BaseModel):
     status: str
 
     district: Optional[str]
+    pickup_address: Optional[str] = None
     latitude: Optional[float]
     longitude: Optional[float]
 
     image_url: Optional[str]
+    image_urls: List[str] = Field(default_factory=list)
+    video_url: Optional[str] = None
     is_organic: bool
     harvest_date: Optional[datetime] = None
     expiry_date: Optional[datetime] = None
@@ -158,11 +170,13 @@ class DemandCreate(BaseModel):
     category: str
     description: Optional[str] = None
     quantity_kg: float = Field(..., gt=0)
-    max_price_per_kg: float = Field(..., gt=0)
+    max_price_per_kg: float = Field(default=0, ge=0)
     district: str = Field(..., min_length=1)
     delivery_address: str = Field(..., min_length=1)
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    is_urgent: bool = False
+    allow_location_based_alerts: bool = False
     required_by: Optional[datetime] = None
 
 
@@ -179,8 +193,36 @@ class DemandOut(BaseModel):
     delivery_address: Optional[str]
     required_by: Optional[datetime]
     created_at: datetime
+    is_urgent: bool = False
     class Config:
         from_attributes = True
+
+
+class DemandPublicOut(BaseModel):
+    id: int
+    product_name: str
+    category: str
+    description: Optional[str]
+    quantity_kg: float
+    max_price_per_kg: float
+    status: str
+    district: Optional[str]
+    required_by: Optional[datetime]
+    created_at: datetime
+    is_urgent: bool
+
+    class Config:
+        from_attributes = True
+
+
+class AlertPreferencesUpdate(BaseModel):
+    sms_alerts_opt_in: bool
+    share_location_for_alerts: bool
+
+
+class AlertPreferencesOut(BaseModel):
+    sms_alerts_opt_in: bool
+    share_location_for_alerts: bool
 
 
 class OrderCreate(BaseModel):

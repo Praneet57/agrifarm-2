@@ -6,10 +6,15 @@ class TestProducts:
     async def test_create_product(self, client: AsyncClient, farmer_token):
         r = await client.post("/api/v1/products", headers={"Authorization": f"Bearer {farmer_token}"},
             json={"name":"Test Mangoes","category":"Fruits","quantity_kg":500,"price_per_kg":120,"is_organic":True,
-                  "harvest_date":"2026-10-01T00:00:00Z","expiry_date":"2026-10-15T00:00:00Z"})
+                  "harvest_date":"2026-10-01T00:00:00Z","expiry_date":"2026-10-15T00:00:00Z",
+                  "image_url":"/uploads/products/first.jpg",
+                  "image_urls":["/uploads/products/first.jpg","/uploads/products/second.jpg"],
+                  "video_url":"/uploads/products/harvest.mp4"})
         assert r.status_code == 201; assert r.json()["name"] == "Test Mangoes"
         assert r.json()["harvest_date"].startswith("2026-10-01")
         assert r.json()["expiry_date"].startswith("2026-10-15")
+        assert r.json()["image_urls"] == ["/uploads/products/first.jpg","/uploads/products/second.jpg"]
+        assert r.json()["video_url"] == "/uploads/products/harvest.mp4"
 
     async def test_buyer_can_create_product(self, client: AsyncClient, buyer_token):
         r = await client.post("/api/v1/products", headers={"Authorization": f"Bearer {buyer_token}"},

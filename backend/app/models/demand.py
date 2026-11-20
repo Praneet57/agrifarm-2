@@ -14,6 +14,8 @@ class Demand(Base):
     max_price_per_kg = Column(Float, nullable=False)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    is_urgent = Column(Boolean, nullable=False, default=False, server_default="false")
+    allow_location_based_alerts = Column(Boolean, nullable=False, default=False, server_default="false")
     district = Column(String(100), nullable=True)
     delivery_address = Column(Text, nullable=True)
     status = Column(String(30), default="open")

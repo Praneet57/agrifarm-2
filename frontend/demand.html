@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Urgent demand – AgriMarket</title>
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+  <nav class="navbar"><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket</a></nav>
+  <main style="max-width:760px;margin:2rem auto;padding:0 1rem">
+    <div class="card"><div class="card-body">
+      <h1 id="demand-name">Loading demand…</h1>
+      <p class="text-muted" id="demand-area"></p>
+      <p id="demand-category"></p>
+      <p id="demand-quantity"></p>
+      <p id="demand-price"></p>
+      <p id="demand-urgency"></p>
+      <p id="demand-description"></p>
+      <p id="demand-required-by"></p>
+      <p id="demand-error" role="alert" style="color:#b00020"></p>
+    </div></div>
+    <p><a href="/">Visit AgriMarket</a></p>
+  </main>
+  <script src="/static/js/api.js"></script>
+  <script>
+    async function loadDemand(){
+      const id=new URLSearchParams(location.search).get("id");
+      if(!id||! /^\d+$/.test(id)){document.getElementById("demand-error").textContent="Demand link is invalid.";return}
+      try{
+        const demand=await API.getDemand(id);
+        document.title=`${demand.product_name} demand – AgriMarket`;
+        document.getElementById("demand-name").textContent=demand.product_name;
+        document.getElementById("demand-area").textContent=demand.district||"Nearby area";
+        document.getElementById("demand-category").textContent=`Category: ${demand.category}`;
+        document.getElementById("demand-quantity").textContent=`Quantity requested: ${demand.quantity_kg} kg`;
+        document.getElementById("demand-price").textContent=`Maximum price: ₹${demand.max_price_per_kg}/kg`;
+        document.getElementById("demand-urgency").textContent=demand.is_urgent?"Urgent demand":"";
+        document.getElementById("demand-description").textContent=demand.description||"";
+        document.getElementById("demand-required-by").textContent=demand.required_by?`Required by: ${new Date(demand.required_by).toLocaleDateString()}`:"";
+      }catch(error){
+        document.getElementById("demand-name").textContent="Demand unavailable";
+        document.getElementById("demand-error").textContent=error.message||"Unable to load this demand.";
+      }
+    }
+    loadDemand();
+  </script>
+</body>
+</html>

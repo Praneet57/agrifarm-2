@@ -1,18 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 from datetime import datetime, timezone
+import os
 import secrets
+import uuid
 import httpx
 from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.redis import get_redis
 from app.core.security import *
 from app.models.user import User
-from app.schemas import UserRegister, UserLogin, Token, UserOut, UserUpdate
+from app.schemas import (
+    AlertPreferencesOut,
+    AlertPreferencesUpdate,
+    UserRegister,
+    UserLogin,
+    Token,
+    UserOut,
+    UserUpdate,
+)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+PROFILE_UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "profiles")
 
 @router.post("/register", response_model=Token, status_code=201)
 async def register(data: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
@@ -186,31 +197,112 @@ async def change_password(data: ChangePwdReq, current_user: User = Depends(get_c
 
 @router.post("/send-verification")
 async def send_verification(current_user: User = Depends(get_current_user)):
-    if current_user.is_verified: return {"message": "Already verified"}
-    token = create_verification_token(current_user.id, "phone_verify")
-    payload = decode_token(token); r = await get_redis()
-    await r.setex(f"verify:{payload['jti']}", 900, str(current_user.id))
-    return {"message": "Verification token generated.", "verify_token": token}
+    if current_user.is_verified:
+        return {"message": "Already verified"}
+    await check_rate_limit(f"send_verify:{current_user.id}", 5, 3600)
+
+    otp = f"{secrets.randbelow(1000000):06d}"
+    r = await get_redis()
+    await r.setex(f"phone_otp:{current_user.id}", 600, otp)
+
+    # If Twilio SMS provider is configured, send the SMS
+    sms_sent = False
+    if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_PHONE_NUMBER:
+        try:
+            from twilio.rest import Client
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            client.messages.create(
+                body=f"Your AgriMarket verification code is {otp}. It expires in 10 minutes.",
+                from_=settings.TWILIO_PHONE_NUMBER,
+                to=current_user.phone,
+            )
+            sms_sent = True
+        except Exception:
+            pass
+
+    # In production, never leak the verification OTP in the response
+    if not sms_sent and not settings.DEBUG:
+        raise HTTPException(503, "SMS service is not configured. Please contact support.")
+
+    response_data = {"message": "Verification code sent to your phone."}
+    # In debug/demo mode only, provide the code to allow local testing
+    if settings.DEBUG and not sms_sent:
+        response_data["verify_token"] = otp
+        response_data["demo_mode"] = True
+
+    return response_data
 
 class VerifyReq(BaseModel):
     verify_token: str
 
 @router.post("/verify-phone")
-async def verify_phone(data: VerifyReq, db: AsyncSession = Depends(get_db)):
-    try: payload = decode_token(data.verify_token)
-    except: raise HTTPException(400, "Invalid token")
-    if payload.get("type") != "otp" or payload.get("purpose") != "phone_verify":
-        raise HTTPException(400, "Wrong token type")
-    r = await get_redis(); uid = await r.getdel(f"verify:{payload['jti']}")
-    if not uid: raise HTTPException(400, "Token used or expired")
-    result = await db.execute(select(User).where(User.id == int(uid)))
-    user = result.scalar_one_or_none()
-    if user: user.is_verified = True; await db.flush()
-    return {"message": "Phone verified! ✅"}
+async def verify_phone(data: VerifyReq, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if current_user.is_verified:
+        return {"message": "Phone already verified! ✅"}
+
+    token_val = data.verify_token.strip()
+    r = await get_redis()
+
+    # 1. Check 6-digit OTP
+    stored_otp = await r.get(f"phone_otp:{current_user.id}")
+    stored_otp_str = stored_otp.decode() if isinstance(stored_otp, bytes) else stored_otp
+    if stored_otp_str and secrets.compare_digest(token_val, stored_otp_str):
+        await r.delete(f"phone_otp:{current_user.id}")
+        current_user.is_verified = True
+        await db.flush()
+        return {"message": "Phone verified! ✅"}
+
+    # 2. Check JWT verification token (for backward compatibility)
+    try:
+        payload = decode_token(token_val)
+        if payload.get("type") == "otp" and payload.get("purpose") == "phone_verify":
+            uid = await r.getdel(f"verify:{payload['jti']}")
+            if uid and int(uid) == current_user.id:
+                current_user.is_verified = True
+                await db.flush()
+                return {"message": "Phone verified! ✅"}
+    except Exception:
+        pass
+
+    raise HTTPException(400, "Invalid or expired verification code")
 
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/me/alert-preferences", response_model=AlertPreferencesOut)
+async def get_alert_preferences(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.put("/me/alert-preferences", response_model=AlertPreferencesOut)
+async def update_alert_preferences(
+    data: AlertPreferencesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    if data.sms_alerts_opt_in and not current_user.is_verified:
+        raise HTTPException(400, "Verify your phone before opting in to SMS alerts")
+    if data.share_location_for_alerts and (
+        current_user.latitude is None or current_user.longitude is None
+    ):
+        raise HTTPException(400, "Add your coordinates before sharing location for alerts")
+
+    if data.sms_alerts_opt_in and not current_user.sms_alerts_opt_in:
+        current_user.sms_alert_consent_at = now
+        current_user.sms_alerts_opted_out_at = None
+    elif not data.sms_alerts_opt_in and current_user.sms_alerts_opt_in:
+        current_user.sms_alerts_opted_out_at = now
+    if data.share_location_for_alerts and not current_user.share_location_for_alerts:
+        current_user.location_sharing_consent_at = now
+
+    current_user.sms_alerts_opt_in = data.sms_alerts_opt_in
+    current_user.share_location_for_alerts = data.share_location_for_alerts
+    await db.flush()
+    return current_user
+
 
 class FarmerConversionRequest(BaseModel):
     terms_accepted: bool
@@ -247,12 +339,54 @@ async def update_profile(data: UserUpdate, current_user: User = Depends(get_curr
         setattr(current_user, field, value)
     await db.flush(); await db.refresh(current_user); return current_user
 
+@router.post("/me/profile-image", response_model=UserOut)
+async def upload_profile_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mime_extensions = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+    extension = mime_extensions.get(file.content_type)
+    if not extension:
+        raise HTTPException(400, "Only JPG, PNG, and WEBP images are allowed")
+
+    contents = await file.read(5 * 1024 * 1024 + 1)
+    _is_valid_img = (
+        contents[:3] == b"\xff\xd8\xff"
+        or contents[:8] == b"\x89PNG\r\n\x1a\n"
+        or (contents[:4] == b"RIFF" and contents[8:12] == b"WEBP")
+    )
+    if not _is_valid_img:
+        raise HTTPException(400, "File content does not match a valid image format")
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Image must be under 5MB")
+
+    os.makedirs(PROFILE_UPLOAD_DIR, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}{extension}"
+    filepath = os.path.join(PROFILE_UPLOAD_DIR, filename)
+    with open(filepath, "wb") as image_file:
+        image_file.write(contents)
+
+    current_user.profile_image = f"/uploads/profiles/{filename}"
+    await db.flush()
+    await db.refresh(current_user)
+    return current_user
+
 @router.get("/sessions")
 async def list_sessions(current_user: User = Depends(get_current_user)):
     r = await get_redis(); keys = await r.keys(f"rt:{current_user.id}:*")
     return {"active_sessions": len(keys)}
 
-@router.get("/users/{user_id}", response_model=UserOut)
+@router.get(
+    "/users/{user_id}",
+    response_model=UserOut,
+    response_model_exclude={"latitude", "longitude", "door_no_farm"},
+)
 async def get_user(user_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()

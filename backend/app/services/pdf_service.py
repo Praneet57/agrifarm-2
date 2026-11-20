@@ -19,7 +19,10 @@ async def generate_agreement_pdf(order, db) -> str:
     if order.product_id:
         pr = await db.execute(select(Product).where(Product.id==order.product_id))
         product = pr.scalar_one_or_none()
-    filename = f"/tmp/agreement_{order.order_number}.pdf"
+    import os as _os
+    _pdf_dir = "/app/uploads/agreements"
+    _os.makedirs(_pdf_dir, exist_ok=True)
+    filename = f"{_pdf_dir}/agreement_{order.order_number}.pdf"
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20*mm, leftMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
     styles = getSampleStyleSheet()

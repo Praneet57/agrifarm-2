@@ -160,6 +160,8 @@ const API={
   logoutAll:()=>apiFetch("/auth/logout-all",{method:"POST"}),
   refresh:(rt)=>apiFetch("/auth/refresh",{method:"POST",body:JSON.stringify({refresh_token:rt})}),
   me:()=>apiFetch("/auth/me"),
+  alertPreferences:()=>apiFetch("/auth/me/alert-preferences"),
+  updateAlertPreferences:(d)=>apiFetch("/auth/me/alert-preferences",{method:"PUT",body:JSON.stringify(d)}),
   requestFarmerConversion:(terms_accepted)=>apiFetch("/auth/farmer-conversion/request",{method:"POST",body:JSON.stringify({terms_accepted})}),
   farmerConversionStatus:()=>apiFetch("/auth/farmer-conversion/status"),
   updateMe:(d)=>apiFetch("/auth/me",{method:"PUT",body:JSON.stringify(d)}),
@@ -170,6 +172,16 @@ const API={
   verifyPhone:(token)=>apiFetch("/auth/verify-phone",{method:"POST",body:JSON.stringify({verify_token:token})}),
   sessions:()=>apiFetch("/auth/sessions"),
   getUser:(id)=>apiFetch(`/auth/users/${id}`),
+  uploadProfileImage: async (file)=>{
+    const token=getToken();
+    const form=new FormData();
+    form.append("file",file);
+    const headers={};
+    if(token)headers["Authorization"]=`Bearer ${token}`;
+    const res=await fetch(API_BASE+"/auth/me/profile-image",{method:"POST",headers,body:form});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.detail||`Error ${res.status}`)}
+    return res.json();
+  },
   createProduct:(d)=>apiFetch("/products/",{method:"POST",body:JSON.stringify(d)}),
   uploadProductImage: async (file)=>{
     const token=getToken();
@@ -178,6 +190,16 @@ const API={
     const headers={};
     if(token)headers["Authorization"]=`Bearer ${token}`;
     const res=await fetch(API_BASE+"/products/upload-image",{method:"POST",headers,body:form});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.detail||`Error ${res.status}`)}
+    return res.json();
+  },
+  uploadProductMedia: async (files)=>{
+    const token=getToken();
+    const form=new FormData();
+    files.forEach(file=>form.append("files",file));
+    const headers={};
+    if(token)headers["Authorization"]="Bearer "+token;
+    const res=await fetch(API_BASE+"/products/upload-media",{method:"POST",headers,body:form});
     if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.detail||`Error ${res.status}`)}
     return res.json();
   },
@@ -191,6 +213,7 @@ const API={
   createDemand:(d)=>apiFetch("/demands/",{method:"POST",body:JSON.stringify(d)}),
   listDemands:(p={})=>apiFetch("/demands/?"+new URLSearchParams(p)),
   myDemands:()=>apiFetch("/demands/my"),
+  getDemand:(id)=>apiFetch(`/demands/${id}`),
   createOrder:(d)=>apiFetch("/orders/",{method:"POST",body:JSON.stringify(d)}),
   listOrders:()=>apiFetch("/orders/"),
   getOrder:(id)=>apiFetch(`/orders/${id}`),
@@ -328,6 +351,45 @@ function startOrderStatusToastWatcher(){
 function statusBadge(s){return`<span class="status status-${s}">${s.replace("_"," ")}</span>`}
 function formatDate(d){if(!d)return"-";return new Date(d).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}
 function escapeHtml(value){return String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
+function profileAvatarMarkup(name,imageUrl,size=36){
+  const label=String(name||"User").trim();
+  const initial=escapeHtml((label[0]||"U").toUpperCase());
+  const image=imageUrl?`<img src="${escapeHtml(imageUrl)}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false">`:"";
+  return `<span class="profile-photo-avatar" style="width:${size}px;height:${size}px" aria-label="${escapeHtml(label)}">${image}<span${imageUrl?" hidden":""}>${initial}</span></span>`;
+}
+function setUserAvatar(element,name,imageUrl){
+  const label=String(name||"User").trim();
+  element.replaceChildren();
+  element.style.overflow="hidden";
+  if(imageUrl){
+    const image=document.createElement("img");
+    image.src=imageUrl;
+    image.alt=`${label} profile photo`;
+    image.style.cssText="width:100%;height:100%;object-fit:cover;border-radius:50%";
+    image.onerror=()=>setUserAvatar(element,label,null);
+    element.appendChild(image);
+    return;
+  }
+  element.textContent=(label[0]||"U").toUpperCase();
+}
+async function uploadCurrentProfilePhoto(inputId,avatarId,buttonId){
+  const input=document.getElementById(inputId);
+  const file=input?.files[0];
+  if(!file)return;
+  const button=document.getElementById(buttonId);
+  button.disabled=true;
+  button.textContent="…";
+  try{
+    const updated=await API.uploadProfileImage(file);
+    localStorage.setItem("user",JSON.stringify(updated));
+    input.value="";
+    setUserAvatar(document.getElementById(avatarId),updated.full_name,updated.profile_image);
+    const navAvatar=document.getElementById("nav-avatar");
+    if(navAvatar)setUserAvatar(navAvatar,updated.full_name,updated.profile_image);
+    showToast("Profile photo uploaded!","success");
+  }catch(error){showToast(error.message,"error")}
+  finally{button.disabled=false;button.textContent="+"}
+}
 function formatChatTimestamp(value){
   if(!value)return"";
   const date=new Date(value);

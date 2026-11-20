@@ -11,8 +11,7 @@ services:
       POSTGRES_DB: agridb
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # No host port exposed — only reachable inside Docker network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agriuser -d agridb"]
       interval: 10s

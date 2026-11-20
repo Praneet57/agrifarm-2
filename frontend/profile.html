@@ -1,13 +1,19 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Profile – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css"/></head>
 <body>
 <nav class="navbar"><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket</a>
-  <div style="display:flex;align-items:center;gap:1rem"><a id="nav-dash" href="#" style="color:rgba(255,255,255,.8);text-decoration:none;font-size:.9rem">← Dashboard</a><a href="#" onclick="logout()" style="color:rgba(255,255,255,.7);font-size:.85rem;text-decoration:none">Logout</a></div>
+  <div style="display:flex;align-items:center;gap:1rem"><a id="nav-dash" href="#" style="color:rgba(255,255,255,.8);text-decoration:none;font-size:.9rem">← Dashboard</a><a href="/login.html?logout=1" style="color:rgba(255,255,255,.7);font-size:.85rem;text-decoration:none">Logout</a></div>
 </nav>
 <div style="max-width:900px;margin:2rem auto;padding:0 1.5rem">
   <h2 class="section-title" id="page-title">👤 My Profile</h2>
   <div class="card" style="margin-bottom:1.5rem">
     <div class="card-body" style="display:flex;align-items:center;gap:1.5rem;padding:1.5rem">
-      <div style="width:72px;height:72px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;color:white;font-size:2rem;font-weight:700;flex-shrink:0" id="avatar">U</div>
+      <div class="profile-photo-control">
+        <div class="profile-photo-edit" style="width:72px;height:72px">
+          <div style="width:72px;height:72px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;color:white;font-size:2rem;font-weight:700;flex-shrink:0;overflow:hidden" id="avatar">U</div>
+          <button class="profile-photo-add" id="profile-photo-upload-btn" type="button" aria-label="Upload your photo" title="Upload your photo" onclick="document.getElementById('pf-photo').click()">+</button>
+        </div>
+        <span class="profile-photo-caption">Upload your photo</span>
+      </div>
       <div style="flex:1"><div style="font-size:1.3rem;font-weight:700" id="disp-name">Loading…</div><div class="text-muted" id="disp-role"></div><div class="text-sm text-muted" id="disp-phone"></div><div class="text-sm text-muted" id="disp-loc"></div><div style="margin-top:.4rem" id="disp-verified"></div><div class="text-sm text-muted" id="disp-bio" style="margin-top:.4rem"></div></div>
     </div>
   </div>
@@ -21,13 +27,25 @@
     <div class="card-body">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
         <div class="form-group" style="grid-column:1/-1"><label>Full Name</label><input type="text" id="pf-name" class="form-control"/></div>
+        <input type="file" id="pf-photo" accept="image/jpeg,image/png,image/webp" hidden onchange="uploadProfilePhoto()"/>
         <div class="form-group"><label>Email</label><input type="email" id="pf-email" class="form-control" placeholder="Optional"/></div>
         <div class="form-group"><label>Phone (read-only)</label><input type="tel" id="pf-phone" class="form-control" readonly style="background:#f5f5f5"/></div>
         <div class="form-group"><label>Village</label><input type="text" id="pf-village" class="form-control"/></div>
         <div class="form-group"><label>District</label><input type="text" id="pf-district" class="form-control"/></div>
+        <div class="form-group"><label>Latitude (optional)</label><input type="number" step="any" min="-90" max="90" id="pf-latitude" class="form-control"/></div>
+        <div class="form-group"><label>Longitude (optional)</label><input type="number" step="any" min="-180" max="180" id="pf-longitude" class="form-control"/></div>
         <div class="form-group" style="grid-column:1/-1"><label>Bio</label><textarea id="pf-bio" class="form-control" rows="3" placeholder="Tell others about yourself…"></textarea></div>
       </div>
       <button class="btn btn-green" id="save-btn" onclick="saveProfile()">Save Changes</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="card-header"><strong>📢 Nearby urgent-demand SMS</strong></div>
+    <div class="card-body">
+      <label class="text-sm" style="display:block;margin-bottom:.6rem"><input type="checkbox" id="sms-alert-opt-in"/> I consent to receive SMS alerts about urgent agricultural demands near my shared location.</label>
+      <label class="text-sm" style="display:block;margin-bottom:1rem"><input type="checkbox" id="sms-location-sharing"/> I explicitly allow my saved coordinates to be used privately for 10 km recipient matching.</label>
+      <p class="text-sm text-muted">Alerts are sent only to verified mobile numbers. You can opt out here at any time. Your exact coordinates are not included in alerts.</p>
+      <button class="btn btn-green" id="save-alert-preferences" type="button" onclick="saveAlertPreferences()">Save alert preferences</button>
     </div>
   </div>
   <div class="card" style="margin-bottom:1.5rem">
@@ -47,17 +65,17 @@
   <div class="card" id="verify-card" style="display:none;margin-bottom:1.5rem">
     <div class="card-header"><strong>📱 Phone Verification</strong></div>
     <div class="card-body">
-      <p class="text-sm text-muted" style="margin-bottom:1rem">Verify your phone to build trust with others.</p>
-      <button class="btn btn-green btn-sm" onclick="sendVerif()">Send Verification Token</button>
+      <p class="text-sm text-muted" style="margin-bottom:1rem">Verify your phone with the OTP token before posting urgent SMS demands or receiving alerts.</p>
+      <button class="btn btn-green btn-sm" onclick="sendVerif()">Send OTP</button>
       <div id="verif-input" style="display:none;margin-top:1rem">
-        <div class="form-group"><label>Token</label><input type="text" id="verif-token" class="form-control" placeholder="Paste token…"/></div>
+        <div class="form-group"><label>OTP</label><input type="text" id="verif-token" class="form-control" placeholder="Enter OTP…"/></div>
         <button class="btn btn-green btn-sm" onclick="verifyPhone()">Verify Phone</button>
       </div>
     </div>
   </div>
   </div>
 </div>
-<script src="/static/js/api.js?v=4"></script>
+<script src="/static/js/api.js?v=9"></script>
 <script>
 if(!requireAuth())throw new Error();
 const user=getUser();
@@ -68,6 +86,8 @@ document.getElementById("nav-dash").href=dashboardUrl(user);
 if(viewUserId){
   document.getElementById("page-title").textContent="🌾 Farmer Profile";
   document.getElementById("edit-section").style.display="none";
+  document.getElementById("profile-photo-upload-btn").style.display="none";
+  document.querySelector(".profile-photo-caption").style.display="none";
   document.getElementById("nav-dash").textContent="← Back";
   document.getElementById("nav-dash").href=sessionStorage.getItem("previousPage")||dashboardUrl(user);
 }
@@ -87,7 +107,7 @@ function timeAgo(dateStr){
 async function loadProfile(){
   try{
     const u=viewUserId?await API.getUser(viewUserId):await API.me();
-    document.getElementById("avatar").textContent=u.full_name[0].toUpperCase();
+    setUserAvatar(document.getElementById("avatar"),u.full_name,u.profile_image);
     document.getElementById("disp-name").textContent=u.full_name;
     document.getElementById("disp-role").textContent="Marketplace Member";
     document.getElementById("disp-phone").textContent=u.phone;
@@ -95,8 +115,9 @@ async function loadProfile(){
     document.getElementById("disp-bio").textContent=u.bio||"";
     document.getElementById("disp-verified").innerHTML=u.is_verified?'<span style="color:var(--green);font-size:.85rem">✅ Verified</span>':'<span style="color:var(--amber);font-size:.85rem">⚠️ Not verified</span>';
     if(!viewUserId){
-      document.getElementById("pf-name").value=u.full_name||"";document.getElementById("pf-email").value=u.email||"";document.getElementById("pf-phone").value=u.phone||"";document.getElementById("pf-village").value=u.village||"";document.getElementById("pf-district").value=u.district||"";document.getElementById("pf-bio").value=u.bio||"";
-      if(!u.is_verified)document.getElementById("verify-card").style.display="block";
+      document.getElementById("pf-name").value=u.full_name||"";document.getElementById("pf-email").value=u.email||"";document.getElementById("pf-phone").value=u.phone||"";document.getElementById("pf-village").value=u.village||"";document.getElementById("pf-district").value=u.district||"";document.getElementById("pf-latitude").value=u.latitude??"";document.getElementById("pf-longitude").value=u.longitude??"";document.getElementById("pf-bio").value=u.bio||"";
+      const prefs=await API.alertPreferences();document.getElementById("sms-alert-opt-in").checked=prefs.sms_alerts_opt_in;document.getElementById("sms-location-sharing").checked=prefs.share_location_for_alerts;
+      if(!u.is_verified || params.get("verify")==="1")document.getElementById("verify-card").style.display="block";
       const s=await API.sessions();document.getElementById("sessions-info").textContent=`${s.active_sessions} active session(s)`;
     }
     await loadPosts(viewUserId);
@@ -133,8 +154,27 @@ function viewProduct(p){
 
 async function saveProfile(){
   const btn=document.getElementById("save-btn");btn.innerHTML='<span class="loader"></span>';btn.disabled=true;
-  try{await API.updateMe({full_name:document.getElementById("pf-name").value,email:document.getElementById("pf-email").value||null,bio:document.getElementById("pf-bio").value||null,village:document.getElementById("pf-village").value||null,district:document.getElementById("pf-district").value||null});showToast("Profile updated! ✅","success");loadProfile()}
+  try{const updated=await API.updateMe({full_name:document.getElementById("pf-name").value,email:document.getElementById("pf-email").value||null,bio:document.getElementById("pf-bio").value||null,village:document.getElementById("pf-village").value||null,district:document.getElementById("pf-district").value||null,latitude:document.getElementById("pf-latitude").value===""?null:Number(document.getElementById("pf-latitude").value),longitude:document.getElementById("pf-longitude").value===""?null:Number(document.getElementById("pf-longitude").value)});localStorage.setItem("user",JSON.stringify(updated));showToast("Profile updated! ✅","success");loadProfile()}
   catch(e){showToast(e.message,"error")}finally{btn.innerHTML="Save Changes";btn.disabled=false}
+}
+async function saveAlertPreferences(){
+  const btn=document.getElementById("save-alert-preferences");btn.disabled=true;
+  try{const updated=await API.updateAlertPreferences({sms_alerts_opt_in:document.getElementById("sms-alert-opt-in").checked,share_location_for_alerts:document.getElementById("sms-location-sharing").checked});document.getElementById("sms-alert-opt-in").checked=updated.sms_alerts_opt_in;document.getElementById("sms-location-sharing").checked=updated.share_location_for_alerts;showToast("Alert preferences updated","success")}
+  catch(e){showToast(e.message,"error")}
+  finally{btn.disabled=false}
+}
+async function uploadProfilePhoto(){
+  const input=document.getElementById("pf-photo"),file=input.files[0];
+  const btn=document.getElementById("profile-photo-upload-btn");
+  btn.disabled=true;btn.textContent="…";
+  try{
+    const updated=await API.uploadProfileImage(file);
+    localStorage.setItem("user",JSON.stringify(updated));
+    input.value="";
+    setUserAvatar(document.getElementById("avatar"),updated.full_name,updated.profile_image);
+    showToast("Profile photo uploaded!","success");
+  }catch(e){showToast(e.message,"error")}
+  finally{btn.disabled=false;btn.textContent="+"}
 }
 async function changePwd(){
   const cur=document.getElementById("cur-pwd").value,nw=document.getElementById("new-pwd").value,con=document.getElementById("con-pwd").value;
@@ -148,12 +188,21 @@ async function logoutAll(){
   try{await API.logoutAll();showToast("All sessions terminated","info");setTimeout(()=>{clearAuth();window.location.href="/login.html"},1200)}catch(e){showToast(e.message,"error")}
 }
 async function sendVerif(){
-  try{const r=await API.sendVerification();showToast("Token ready!","success");document.getElementById("verif-input").style.display="block";if(r.verify_token){document.getElementById("verif-token").value=r.verify_token;showToast("Token auto-filled (demo mode)","info")}}catch(e){showToast(e.message,"error")}
+  try{  const r=await API.sendVerification();showToast("OTP ready!","success");document.getElementById("verif-input").style.display="block";if(r.verify_token){document.getElementById("verif-token").value=r.verify_token;showToast("OTP auto-filled (demo mode)","info")}}catch(e){showToast(e.message,"error")}
 }
 async function verifyPhone(){
   const t=document.getElementById("verif-token").value.trim();
   if(!t){showToast("Enter token","error");return}
-  try{await API.verifyPhone(t);showToast("Phone verified! ✅","success");document.getElementById("verify-card").style.display="none";loadProfile()}catch(e){showToast(e.message,"error")}
+  try{
+    await API.verifyPhone(t);
+    const updated=await API.me();
+    localStorage.setItem("user",JSON.stringify(updated));
+    showToast("Phone verified! ✅","success");
+    const returnUrl=params.get("return");
+    if(returnUrl){window.location.href=returnUrl;return}
+    document.getElementById("verify-card").style.display="none";
+    loadProfile();
+  }catch(e){showToast(e.message,"error")}
 }
 loadProfile();
 </script></body></html>

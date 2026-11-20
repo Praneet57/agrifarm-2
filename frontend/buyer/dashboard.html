@@ -1,8 +1,8 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Buyer Dashboard – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css?v=8"/></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Buyer Dashboard – AgriMarket</title><link rel="stylesheet" href="/static/css/style.css?v=13"/></head>
 <body>
 <nav class="navbar"><div style="display:flex;align-items:center;gap:.5rem"><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket</a>
   <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button></div>
-  <div style="display:flex;align-items:center;gap:.75rem"><div class="avatar" id="nav-avatar">B</div><span style="color:white;font-size:.9rem" id="nav-name"></span><button class="orders-nav-btn" type="button" aria-label="Track my purchases" title="Track my purchases" onclick="show('orders')">🛒</button><a href="#" onclick="logout()" style="color:rgba(255,255,255,0.7);font-size:.85rem;text-decoration:none">Logout</a></div>
+  <div style="display:flex;align-items:center;gap:.75rem"><div class="avatar" id="nav-avatar">B</div><span style="color:white;font-size:.9rem" id="nav-name"></span><button class="orders-nav-btn" type="button" aria-label="Track my purchases" title="Track my purchases" onclick="show('orders')">🛒</button><a href="/login.html?logout=1" style="color:rgba(255,255,255,0.7);font-size:.85rem;text-decoration:none">Logout</a></div>
 </nav>
 <div class="dashboard-layout">
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
@@ -73,6 +73,10 @@
             <div id="d-map" style="width:100%;height:150px;background:#eef2ee;border:1px solid #ddd;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.85rem">Loading map…</div>
             <div class="text-sm text-muted" id="d-map-coords" style="margin-top:.3rem"></div>
           </div>
+<div class="form-group" style="grid-column:1/-1">
+  <label><input type="checkbox" id="d-urgent"/> Send an SMS broadcast for this urgent demand</label>
+  <label class="text-sm text-muted" style="display:block;margin-top:.4rem"><input type="checkbox" id="d-location-alerts"/> I allow my pinned demand location to be used privately to find eligible members within 10 km. Only my district is included in the SMS.</label>
+</div>
         </div>
         <button class="btn btn-green" id="post-btn" onclick="postDemand()">Post Demand</button>
       </div></div>
@@ -101,6 +105,14 @@
         </div>
       </div>
       <div class="card" style="max-width:500px"><div class="card-body">
+        <div class="profile-photo-control" style="margin:0 auto 1rem">
+          <div class="profile-photo-edit">
+            <div class="avatar" id="profile-photo-preview" style="background:var(--green)">B</div>
+            <button class="profile-photo-add" id="profile-photo-upload-btn" type="button" aria-label="Upload your photo" title="Upload your photo" onclick="document.getElementById('profile-photo-file').click()">+</button>
+            <input type="file" id="profile-photo-file" accept="image/jpeg,image/png,image/webp" hidden onchange="uploadCurrentProfilePhoto('profile-photo-file','profile-photo-preview','profile-photo-upload-btn')"/>
+          </div>
+          <span class="profile-photo-caption">Upload your photo</span>
+        </div>
         <div class="form-group"><label>Full Name</label><input type="text" id="pf-name" class="form-control"/></div>
         <div class="form-group"><label>Email</label><input type="email" id="pf-email" class="form-control"/></div>
         <div class="form-group"><label>District</label><input type="text" id="pf-dist" class="form-control"/></div>
@@ -176,15 +188,77 @@
   </div>
 </div>
 
+<aside class="sms-alert-card" id="sms-alert-card" aria-label="Urgent demand SMS alerts" hidden>
+  <div class="sms-alert-head">
+    <div class="sms-alert-copy"><span class="sms-alert-icon" aria-hidden="true">📱</span><div><h3>Send nearby SMS</h3><p>Enter a product and quantity to post an urgent demand.</p></div></div>
+    <button class="sms-alert-close" type="button" aria-label="Close SMS alert panel" onclick="closeSmsAlert()">×</button>
+  </div>
+  <div style="display:grid;gap:.55rem;margin:.75rem 0">
+    <label class="text-sm">Product<input class="form-control" id="sms-quick-product" type="text" placeholder="e.g. Tomatoes"/></label>
+    <label class="text-sm">Quantity (kg)<input class="form-control" id="sms-quick-quantity" type="number" min="0.1" step="0.1" placeholder="e.g. 100"/></label>
+    <label class="text-sm" style="display:flex;gap:.4rem;align-items:flex-start"><input id="sms-quick-location-consent" type="checkbox" style="margin-top:.2rem"/> Use my saved location privately to find nearby recipients.</label>
+  </div>
+  <button class="sms-alert-action" id="sms-quick-send" type="button" onclick="sendQuickUrgentDemand()">Send SMS alert →</button>
+  <button class="sms-alert-secondary" type="button" onclick="startUrgentDemand()">Open full demand form</button>
+  <button class="sms-alert-secondary" type="button" onclick="openPhoneVerification()">Verify phone with OTP</button>
+</aside>
+<button class="sms-alert-reopen" id="sms-alert-reopen" type="button" aria-label="Open nearby SMS alerts" onclick="openSmsAlert()">📱 <span>Nearby SMS alerts</span></button>
 <script>
   window.GOOGLE_MAPS_KEY = window.GOOGLE_MAPS_KEY || "AIzaSyCxPrZozVZhaON7D8wz5C1AIt7bOPuKcvs";
 </script>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-<script src="/static/js/api.js?v=5"></script>
+<script src="/static/js/api.js?v=9"></script>
 <script>
+let smsAlertManuallyOpen=false;
+let smsAlertAutoCloseTimer;
+function closeSmsAlert(){smsAlertManuallyOpen=false;clearTimeout(smsAlertAutoCloseTimer);document.getElementById("sms-alert-card").hidden=true;document.getElementById("sms-alert-reopen").hidden=false}
+function openSmsAlert(){smsAlertManuallyOpen=true;clearTimeout(smsAlertAutoCloseTimer);document.getElementById("sms-alert-card").hidden=false;document.getElementById("sms-alert-reopen").hidden=true}
+function openPhoneVerification(){window.location.href="/profile.html?verify=1"}
+function startUrgentDemand(){
+  if(!user || !user.is_verified){openPhoneVerification();return}
+  document.getElementById("d-urgent").checked=true;closeSmsAlert();show("post");document.getElementById("d-name").focus()
+}
+async function sendQuickUrgentDemand(){
+  if(!user || !user.is_verified){openPhoneVerification();return}
+  const product=document.getElementById("sms-quick-product").value.trim();
+  const quantity=Number(document.getElementById("sms-quick-quantity").value);
+  const consent=document.getElementById("sms-quick-location-consent").checked;
+  if(!product||!quantity||quantity<=0){showToast("Enter the product and quantity","error");return}
+  if(!consent){showToast("Allow saved-location matching before sending the SMS","error");return}
+  if(user.latitude==null||user.longitude==null||!user.district){
+    showToast("Add your district and location in the full demand form first","info");
+    startUrgentDemand();
+    return;
+  }
+  const btn=document.getElementById("sms-quick-send");
+  btn.disabled=true;btn.textContent="Sending…";
+  try{
+    await API.createDemand({
+      product_name:product,
+      category:"Other",
+      description:"Urgent demand submitted from the nearby SMS alert box.",
+      quantity_kg:quantity,
+      max_price_per_kg:0,
+      district:user.district,
+      delivery_address:user.area||user.village||user.district,
+      latitude:Number(user.latitude),
+      longitude:Number(user.longitude),
+      is_urgent:true,
+      allow_location_based_alerts:true
+    });
+    document.getElementById("sms-quick-product").value="";
+    document.getElementById("sms-quick-quantity").value="";
+    document.getElementById("sms-quick-location-consent").checked=false;
+    showToast("Urgent demand posted; SMS alerts queued","success");
+    closeSmsAlert();
+  }catch(error){showToast(error.message||"Unable to send SMS alert","error")}
+  finally{btn.disabled=false;btn.textContent="Send SMS alert →"}
+}
+function showSmsAlertPreview(){if(smsAlertManuallyOpen)return;const panel=document.getElementById("sms-alert-card"),bubble=document.getElementById("sms-alert-reopen");panel.hidden=false;bubble.hidden=true;panel.classList.remove("sms-alert-pulse");void panel.offsetWidth;panel.classList.add("sms-alert-pulse");smsAlertAutoCloseTimer=setTimeout(function(){if(!smsAlertManuallyOpen){panel.hidden=true;bubble.hidden=false}},5000)}
+setInterval(showSmsAlertPreview,10000);
 if(!requireAuth()){ /* redirected to login */ }
 const user=getUser();
-document.getElementById("nav-avatar").textContent=user.full_name[0].toUpperCase();
+setUserAvatar(document.getElementById("nav-avatar"),user.full_name,user.profile_image);
 document.getElementById("nav-name").textContent=user.full_name.split(" ")[0];
 const defaultBuyerDistrict = (user && user.district ? user.district.trim() : "");
 if (defaultBuyerDistrict && document.getElementById("fd")) document.getElementById("fd").value = defaultBuyerDistrict;
@@ -344,7 +418,7 @@ async function showFarmer(id){
   try{
     const f = await API.getUser(id);
     document.getElementById('farmer-name').textContent = f.full_name || 'Farmer';
-    document.getElementById('farmer-avatar').textContent = (f.full_name||'F')[0].toUpperCase();
+    setUserAvatar(document.getElementById('farmer-avatar'),f.full_name,f.profile_image);
     document.getElementById('farmer-rating').textContent = f.average_rating ? f.average_rating.toFixed(1) : '-';
     document.getElementById('farmer-reviews').textContent = f.review_count || 0;
     document.getElementById('farmer-exchanges').textContent = f.completed_exchanges || 0;
@@ -363,7 +437,7 @@ async function loadOverview(){
     document.getElementById("st-pend").textContent=os.filter(o=>o.status==="pending").length;
     document.getElementById("st-spent").textContent=formatCurrency(os.filter(o=>["paid","completed"].includes(o.status)).reduce((s,o)=>s+o.total_amount,0));
 document.getElementById("rov").innerHTML=os.length?os.slice(0,4).map(o=>`<div class="card" style="margin-bottom:.75rem"><div class="card-body" style="display:flex;justify-content:space-between;align-items:center;padding:.85rem 1rem"><div><strong>${o.product_name || 'Order Item'}</strong><div class="text-sm text-muted">Order ${o.order_number}</div><div class="text-sm text-muted">${formatCurrency(o.total_amount)}</div></div>${statusBadge(o.status)}</div></div>`).join(""):'<div class="empty-state"><div class="icon">📦</div><p>No orders yet. <a href="#" onclick="show(\'market\')">Browse marketplace</a></p></div>';
-    document.getElementById("pov").innerHTML=ps.length?ps.map(p=>`<div class="card" style="margin-bottom:.75rem;cursor:pointer" onclick='openModal(${JSON.stringify(p).replace(/'/g,"&#39;")});show("market")'><div class="card-body" style="padding:.85rem 1rem"><div class="row-between"><strong>${p.name}</strong><span class="price-tag" style="font-size:1rem">${formatCurrency(p.price_per_kg)}/kg</span></div><div class="text-sm text-muted">by <a href="javascript:void(0)" onclick="event.stopPropagation();viewFarmerProfile(${p.farmer_id})" style="cursor:pointer;color:#1a5c2a;font-weight:700;text-decoration:none">${p.farmer_name||'Seller'}</a> · ${formatQty(p)} ${p.district?"· "+p.district:""}</div></div></div>`).join(""):'<div class="empty-state"><div class="icon">🛒</div><p>No products</p></div>';
+    document.getElementById("pov").innerHTML=ps.length?ps.map(p=>`<div class="card" style="margin-bottom:.75rem;cursor:pointer" onclick='openModal(${JSON.stringify(p).replace(/'/g,"&#39;")});show("market")'><div class="card-body" style="padding:.85rem 1rem"><div class="row-between"><strong>${p.name}</strong><span class="price-tag" style="font-size:1rem">${formatCurrency(p.price_per_kg)}/kg</span></div><div style="display:flex;align-items:center;gap:.5rem;margin-top:.35rem">${profileAvatarMarkup(p.farmer_name||"Farmer",p.farmer_profile_image)}<span class="text-sm text-muted">by <a href="javascript:void(0)" onclick="event.stopPropagation();viewFarmerProfile(${p.farmer_id})" style="cursor:pointer;color:#1a5c2a;font-weight:700;text-decoration:none">${p.farmer_name||'Seller'}</a> · ${formatQty(p)} ${p.district?"· "+p.district:""}</span></div></div></div>`).join(""):'<div class="empty-state"><div class="icon">🛒</div><p>No products</p></div>';
   }catch(e){console.error(e)}
 }
 
@@ -413,7 +487,7 @@ async function loadMarket() {
                       <strong style="font-size:1.05rem;">${p.name}</strong>
                       <div class="price-tag" style="margin:.4rem 0;">${formatCurrency(p.price_per_kg)}/kg</div>
                       <div style="display:flex;align-items:center;gap:.6rem;margin-top:.25rem">
-                        <div class="avatar" style="width:36px;height:36px;font-size:1rem;display:flex;align-items:center;justify-content:center;background:#e9f5ec;color:#1a5c2a">${(p.farmer_name||'F')[0]}</div>
+                        ${profileAvatarMarkup(p.farmer_name||"Farmer",p.farmer_profile_image)}
                         <div style="font-size:.9rem;">
                           <a href="javascript:void(0)" onclick="viewFarmerProfile(${p.farmer_id})" style="color:#1a5c2a;text-decoration:none;font-weight:700;cursor:pointer">${p.farmer_name || 'Seller'}</a>
                           <div style="font-size:.8rem;color:var(--muted)">⭐ ${p.average_rating ? p.average_rating.toFixed(1) : '—'} · ${p.review_count || 0} reviews</div>
@@ -468,7 +542,7 @@ async function loadMarket() {
                     ${formatCurrency(p.price_per_kg)}/kg
                   </div>
                   <div style="display:flex;align-items:center;gap:.6rem;margin-top:.25rem">
-                    <div class="avatar" style="width:36px;height:36px;font-size:1rem;display:flex;align-items:center;justify-content:center;background:#e9f5ec;color:#1a5c2a">${(p.farmer_name||'F')[0]}</div>
+                    ${profileAvatarMarkup(p.farmer_name||"Farmer",p.farmer_profile_image)}
                     <div style="font-size:.9rem;">
                       <a href="javascript:void(0)" onclick="viewFarmerProfile(${p.farmer_id})" style="color:#1a5c2a;text-decoration:none;font-weight:700;cursor:pointer">${p.farmer_name || 'Seller'}</a>
                       <div style="font-size:.8rem;color:var(--muted)">⭐ ${p.average_rating ? p.average_rating.toFixed(1) : '—'} · ${p.review_count || 0} reviews</div>
@@ -537,11 +611,12 @@ async function postDemand(){
   const btn=document.getElementById("post-btn");
   const district=document.getElementById("d-dist").value.trim();
   const addr=document.getElementById("d-addr").value.trim();
-  const data={product_name:document.getElementById("d-name").value.trim(),category:document.getElementById("d-cat").value,quantity_kg:parseFloat(document.getElementById("d-qty").value),max_price_per_kg:parseFloat(document.getElementById("d-price").value),district,delivery_address:addr,required_by:document.getElementById("d-req").value||null};
+  const data={product_name:document.getElementById("d-name").value.trim(),category:document.getElementById("d-cat").value,quantity_kg:parseFloat(document.getElementById("d-qty").value),max_price_per_kg:parseFloat(document.getElementById("d-price").value),district,delivery_address:addr,required_by:document.getElementById("d-req").value||null,is_urgent:document.getElementById("d-urgent").checked,allow_location_based_alerts:document.getElementById("d-location-alerts").checked};
   if(!data.product_name||!data.category||!data.quantity_kg||!data.max_price_per_kg){showToast("Fill in all required fields","error");return}
   if(!district){showToast("Please enter your delivery district","error");return}
   if(!addr){showToast("Please enter your delivery address","error");return}
   if(demandLatLng){data.latitude=demandLatLng.lat;data.longitude=demandLatLng.lng}
+  if(data.is_urgent&&(!data.allow_location_based_alerts||!demandLatLng)){showToast("To send an SMS broadcast, pin your demand location and allow nearby location matching","error");return}
   btn.innerHTML='<span class="loader"></span>';btn.disabled=true;
   try{await API.createDemand(data);showToast("Demand posted! 📢","success");show("demands")}catch(e){showToast(e.message,"error")}finally{btn.innerHTML="Post Demand";btn.disabled=false}
 }
@@ -677,7 +752,7 @@ async function loadChatRooms(){
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────
-async function loadProfile(){try{const u=await API.me();document.getElementById("pf-name").value=u.full_name||"";document.getElementById("pf-email").value=u.email||"";document.getElementById("pf-dist").value=u.district||""}catch(e){}}
+async function loadProfile(){try{const u=await API.me();localStorage.setItem("user",JSON.stringify(u));setUserAvatar(document.getElementById("profile-photo-preview"),u.full_name,u.profile_image);setUserAvatar(document.getElementById("nav-avatar"),u.full_name,u.profile_image);document.getElementById("pf-name").value=u.full_name||"";document.getElementById("pf-email").value=u.email||"";document.getElementById("pf-dist").value=u.district||""}catch(e){showToast(e.message,"error")}}
 async function saveProfile(){try{await API.updateMe({full_name:document.getElementById("pf-name").value,email:document.getElementById("pf-email").value||null,district:document.getElementById("pf-dist").value});showToast("Profile saved! ✅","success")}catch(e){showToast(e.message,"error")}}
 
 window.refreshDashboardData = function(reason = "status") {

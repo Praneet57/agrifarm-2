@@ -30,7 +30,18 @@ async def _ensure_columns(conn):
         await conn.execute(text(
             "ALTER TABLE products ADD COLUMN quantity_unit VARCHAR(10) DEFAULT 'kg'"
         ))
-
+    if "image_urls" not in prod_existing:
+        await conn.execute(text(
+            "ALTER TABLE products ADD COLUMN image_urls JSON NOT NULL DEFAULT '[]'"
+        ))
+    if "video_url" not in prod_existing:
+        await conn.execute(text(
+            "ALTER TABLE products ADD COLUMN video_url VARCHAR(500) NULL"
+        ))
+    if "pickup_address" not in prod_existing:
+        await conn.execute(text(
+            "ALTER TABLE products ADD COLUMN pickup_address TEXT NULL"
+        ))
     # orders: district, latitude, longitude
     order_cols = await conn.execute(text(
         "SELECT column_name FROM information_schema.columns WHERE table_name='orders'"
@@ -77,8 +88,55 @@ async def _ensure_columns(conn):
         if name not in user_existing:
             await conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
 
+    demand_cols = await conn.execute(text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='demands'"
+    ))
+    demand_existing = {r[0] for r in demand_cols.fetchall()}
+    for name in ("is_urgent", "allow_location_based_alerts"):
+        if name not in demand_existing:
+            await conn.execute(text(
+                f"ALTER TABLE demands ADD COLUMN {name} BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    if "sms_alerts_opt_in" not in user_existing:
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN sms_alerts_opt_in BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    if "sms_alert_consent_at" not in user_existing:
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN sms_alert_consent_at TIMESTAMP WITH TIME ZONE NULL"
+        ))
+    if "sms_alerts_opted_out_at" not in user_existing:
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN sms_alerts_opted_out_at TIMESTAMP WITH TIME ZONE NULL"
+        ))
+    if "share_location_for_alerts" not in user_existing:
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN share_location_for_alerts BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    if "location_sharing_consent_at" not in user_existing:
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN location_sharing_consent_at TIMESTAMP WITH TIME ZONE NULL"
+        ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_users_alert_coordinates ON users (latitude, longitude)"
+    ))
+    notification_cols = await conn.execute(text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name='demand_sms_notifications'"
+    ))
+    notification_existing = {r[0] for r in notification_cols.fetchall()}
+    notification_columns = {
+        "delivered_at": "TIMESTAMP WITH TIME ZONE NULL",
+        "provider_updated_at": "TIMESTAMP WITH TIME ZONE NULL",
+        "provider_status": "VARCHAR(24) NULL",
+    }
+    for name, definition in notification_columns.items():
+        if notification_existing and name not in notification_existing:
+            await conn.execute(text(
+                f"ALTER TABLE demand_sms_notifications ADD COLUMN {name} {definition}"
+            ))
 async def init_db():
-    from app.models import user, product, demand, order, payment, support  # noqa
+    from app.models import user, product, demand, order, payment, support, demand_notification  # noqa
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _ensure_columns(conn)

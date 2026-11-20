@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Literal
 
 # Force .env values into environment to avoid stale Docker container env vars.
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
+    TWILIO_CONTENT_TEMPLATE_SID: str = ""
+    TWILIO_PRODUCT_TEMPLATE_SID: str = ""
+    APP_PUBLIC_URL: str = ""
+    SMS_ALERT_RECIPIENT_ROLE: Literal["all", "farmer"] = "all"
+    SMS_ALERT_MAX_ATTEMPTS: int = 3
     ALLOWED_ORIGINS: str = "http://localhost,http://localhost:8000,http://127.0.0.1:8000"
 
     @property

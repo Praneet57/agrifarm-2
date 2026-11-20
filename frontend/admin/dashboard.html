@@ -2,7 +2,7 @@
 <body>
 <nav class="navbar"><div style="display:flex;align-items:center;gap:.5rem"><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket <span style="font-size:.7rem;opacity:.7;margin-left:.3rem">ADMIN</span></a>
   <button class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button></div>
-  <div style="display:flex;align-items:center;gap:.75rem"><span style="color:rgba(255,255,255,.8);font-size:.9rem" id="admin-name"></span><button class="orders-nav-btn" type="button" aria-label="Manage orders" title="Manage orders" onclick="show('orders')">🛒</button><a href="#" onclick="logout()" style="color:rgba(255,255,255,.7);font-size:.85rem;text-decoration:none">Logout</a></div>
+  <div style="display:flex;align-items:center;gap:.75rem"><span style="color:rgba(255,255,255,.8);font-size:.9rem" id="admin-name"></span><button class="orders-nav-btn" type="button" aria-label="Manage orders" title="Manage orders" onclick="show('orders')">🛒</button><a href="/login.html?logout=1" style="color:rgba(255,255,255,.7);font-size:.85rem;text-decoration:none">Logout</a></div>
 </nav>
 <div class="dashboard-layout">
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
@@ -155,7 +155,7 @@
   </main>
 </div>
 
-<script src="/static/js/api.js?v=6"></script>
+<script src="/static/js/api.js?v=9"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 if(!requireAuth())throw new Error();

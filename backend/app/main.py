@@ -1,13 +1,15 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 import os
 from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, get_db
 from app.core.redis import get_redis, close_redis
+from app.core.security import get_current_user
 from app.middleware.logging_middleware import LoggingMiddleware
 from app.middleware.security_middleware import SecurityHeadersMiddleware
 
@@ -24,6 +26,7 @@ from app.routers.chat import router as chat_router
 from app.routers.matching import router as match_router
 from app.routers.admin import router as admin_router
 from app.routers.support import router as support_router
+from app.routers.sms import router as sms_router
 
 
 @asynccontextmanager
@@ -39,8 +42,8 @@ app = FastAPI(
     title="Agri Marketplace API",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/api/docs" if settings.DEBUG else None,
+    redoc_url="/api/redoc" if settings.DEBUG else None,
 )
 
 app.add_middleware(SecurityHeadersMiddleware)
@@ -66,25 +69,41 @@ for r in [
     rating_router,
     admin_router,
     support_router,
+    sms_router,
 ]:
     app.include_router(r, prefix=P)
 
 
 @app.get("/api/v1/agreements/{order_id}/download")
-async def download_agreement(order_id: int):
-    from app.core.database import AsyncSessionLocal
+async def download_agreement(
+    order_id: int,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     from sqlalchemy import select
     from app.models.payment import Agreement
+    from app.models.order import Order
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Agreement).where(Agreement.order_id == order_id))
-        ag = result.scalar_one_or_none()
-        if ag and ag.pdf_key and os.path.exists(ag.pdf_key):
-            return FileResponse(
-                ag.pdf_key,
-                media_type="application/pdf",
-                filename=f"agreement_order_{order_id}.pdf",
-            )
+    result = await db.execute(select(Agreement).where(Agreement.order_id == order_id))
+    ag = result.scalar_one_or_none()
+
+    if ag is None:
+        return JSONResponse({"detail": "Not generated yet"}, status_code=404)
+
+    # Ownership check: only the farmer or buyer of the order may download
+    order_result = await db.execute(select(Order).where(Order.id == order_id))
+    order = order_result.scalar_one_or_none()
+    if order is None or (
+        order.farmer_id != current_user.id and order.buyer_id != current_user.id
+    ):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if ag.pdf_key and os.path.exists(ag.pdf_key):
+        return FileResponse(
+            ag.pdf_key,
+            media_type="application/pdf",
+            filename=f"agreement_order_{order_id}.pdf",
+        )
 
     return JSONResponse({"detail": "Not generated yet"}, status_code=404)
 

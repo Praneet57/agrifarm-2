@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Add Product &amp; Send SMS – AgriMarket</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=14"/>
+</head>
+<body>
+  <nav class="navbar">
+    <a class="navbar-brand" href="/workspace.html"><span>🌾</span> AgriMarket</a>
+    <a href="/workspace.html" style="color:rgba(255,255,255,.85);text-decoration:none">← Dashboard</a>
+  </nav>
+  <main style="max-width:760px;margin:2rem auto;padding:0 1rem">
+    <div class="card">
+      <div class="card-header"><strong>📱 Add product and send SMS</strong></div>
+      <div class="card-body">
+        <p class="text-sm text-muted" style="margin-bottom:1rem">
+          This creates your product listing and queues an SMS for all eligible verified users. Interested buyers can respond through AgriMarket and share contact details themselves.
+        </p>
+        <div id="form-error" role="alert" style="color:#b00020;margin-bottom:.75rem"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+          <div class="form-group" style="grid-column:1/-1">
+            <label for="sms-name">Product name *</label>
+            <input id="sms-name" class="form-control" type="text" placeholder="e.g. Tomatoes"/>
+          </div>
+          <div class="form-group">
+            <label for="sms-category">Category *</label>
+            <select id="sms-category" class="form-control">
+              <option value="">Select</option><option>Fruits</option><option>Vegetables</option>
+              <option>Grains</option><option>Pulses</option><option>Spices</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="sms-quantity">Quantity (kg) *</label>
+            <input id="sms-quantity" class="form-control" type="number" min="0.1" step="0.1"/>
+          </div>
+          <div class="form-group">
+            <label for="sms-price">Price per kg (₹) *</label>
+            <input id="sms-price" class="form-control" type="number" min="0.01" step="0.01"/>
+          </div>
+          <div class="form-group">
+            <label for="sms-district">District *</label>
+            <input id="sms-district" class="form-control" type="text"/>
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label for="sms-pickup-address">Pickup address *</label>
+            <textarea id="sms-pickup-address" class="form-control" rows="2" placeholder="Where buyers can collect the product"></textarea>
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label for="sms-description">Description</label>
+            <textarea id="sms-description" class="form-control" rows="3" placeholder="Quality, variety, or other details"></textarea>
+          </div>
+        </div>
+        <button id="sms-submit" class="btn btn-green" type="button" onclick="submitProductSms()">Add product &amp; send SMS</button>
+      </div>
+    </div>
+  </main>
+  <script src="/static/js/api.js?v=10"></script>
+  <script>
+    if(!requireAuth())throw new Error("Authentication required");
+    const draft=JSON.parse(sessionStorage.getItem("smsProductDraft")||"{}");
+    sessionStorage.removeItem("smsProductDraft");
+    const setValue=(id,value)=>{if(value!==undefined&&value!==null)document.getElementById(id).value=value};
+    setValue("sms-name",draft.name);
+    setValue("sms-quantity",draft.quantity);
+    async function loadSmsProductProfile(){
+      try{
+        const current=await API.me();
+        if(!current.is_verified){window.location.href="/profile.html?verify=1&return=%2Fadd-product-sms.html";return}
+        setValue("sms-district",current.district);
+      }catch(error){document.getElementById("form-error").textContent=error.message||"Unable to load your profile."}
+    }
+    async function submitProductSms(){
+      const error=document.getElementById("form-error");
+      const name=document.getElementById("sms-name").value.trim();
+      const category=document.getElementById("sms-category").value;
+      const quantity=Number(document.getElementById("sms-quantity").value);
+      const price=Number(document.getElementById("sms-price").value);
+      const district=document.getElementById("sms-district").value.trim();
+      const pickupAddress=document.getElementById("sms-pickup-address").value.trim();
+      if(!name||!category||quantity<=0||price<=0||!district||!pickupAddress){
+        error.textContent="Complete the product, price, district, and pickup address fields.";return;
+      }
+      const button=document.getElementById("sms-submit");
+      button.disabled=true;button.textContent="Adding product and queuing SMS…";error.textContent="";
+      try{
+        await API.createProduct({
+          name,category,quantity_kg:quantity,quantity_unit:"kg",price_per_kg:price,min_order_kg:1,
+          district,pickup_address:pickupAddress,
+          description:document.getElementById("sms-description").value.trim()||null,
+          broadcast_sms:true,image_urls:[]
+        });
+        showToast("Product added; SMS alerts queued for eligible verified users.","success");
+        setTimeout(()=>window.location.href="/workspace.html",800);
+      }catch(err){error.textContent=err.message||"Unable to add product and send SMS.";button.disabled=false;button.textContent="Add product & send SMS"}
+    }
+    loadSmsProductProfile();
+  </script>
+</body>
+</html>

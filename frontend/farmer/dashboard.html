@@ -1,7 +1,7 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>AgriMarket Workspace</title><link rel="stylesheet" href="/static/css/style.css?v=10"/></head>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>AgriMarket Workspace</title><link rel="stylesheet" href="/static/css/style.css?v=13"/></head>
 <body class="workspace-dashboard">
 <nav class="navbar"><div class="workspace-header-left"><button class="workspace-menu-toggle" id="workspace-menu-toggle" type="button" aria-label="Open menu" aria-controls="workspace-nav" aria-expanded="false" onclick="toggleWorkspaceMenu()">☰</button><a class="navbar-brand" href="/"><span>🌾</span> AgriMarket</a></div>
-  <div class="workspace-user-actions" style="display:flex;align-items:center;gap:.75rem"><div class="avatar" id="nav-avatar">F</div><span style="color:white;font-size:.9rem" id="nav-name"></span><button class="orders-nav-btn" id="workspace-orders-shortcut" type="button" aria-label="Manage incoming orders" title="Manage incoming orders" onclick="show('orders')">🛒</button><a href="#" onclick="logout()" style="color:rgba(255,255,255,0.7);font-size:.85rem;text-decoration:none">Logout</a></div>
+  <div class="workspace-user-actions" style="display:flex;align-items:center;gap:.75rem"><div class="avatar" id="nav-avatar">F</div><span style="color:white;font-size:.9rem" id="nav-name"></span><button class="orders-nav-btn" id="workspace-orders-shortcut" type="button" aria-label="Manage incoming orders" title="Manage incoming orders" onclick="show('orders')">🛒</button><a href="/login.html?logout=1" style="color:rgba(255,255,255,0.7);font-size:.85rem;text-decoration:none">Logout</a></div>
 </nav>
 <div class="workspace-menu-overlay" id="workspace-menu-overlay" onclick="closeWorkspaceMenu()"></div>
 <div class="workspace-search">
@@ -110,21 +110,14 @@
             </details>
           </div>
           <div class="form-group" style="grid-column:1/-1"><label>Description</label><textarea id="p-desc" class="form-control" rows="2" placeholder="Quality, variety…"></textarea></div>
-          <div class="form-group" style="grid-column:1/-1"><label>Product Image</label>
+          <div class="form-group" style="grid-column:1/-1"><label for="p-media">Product Photos and Video</label>
             <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
-              <input type="file" id="p-image" accept="image/*" class="form-control" style="flex:1;min-width:220px"/>
-              <button class="btn btn-outline-green" type="button" id="img-upload-btn" onclick="uploadImage()">Upload</button>
+              <input type="file" id="p-media" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/ogg" multiple class="form-control" style="flex:1;min-width:220px"/>
+              <button class="btn btn-outline-green" type="button" id="media-upload-btn" onclick="uploadProductMedia()">Upload selected media</button>
             </div>
-            <div id="img-preview-wrap" style="margin-top:.75rem;display:none">
-              <div style="display:flex;gap:.75rem;align-items:center">
-                <img id="img-preview" alt="preview" style="width:120px;height:90px;object-fit:cover;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#f5f5f5"/>
-                <div>
-                  <div style="font-weight:700">Image Ready ✅</div>
-                  <div class="text-sm text-muted" id="img-filename"></div>
-                </div>
-              </div>
-              <button class="btn btn-gray btn-sm" type="button" onclick="clearImage()" style="margin-top:.6rem">Remove</button>
-            </div>
+            <p class="text-sm text-muted" style="margin-top:.35rem">Choose photos and one video together. The first photo is used on the product card; other photos and the video appear in product details. Photos up to 5 MB each; video up to 50 MB; total 60 MB.</p>
+            <div id="media-preview-list" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem"></div>
+            <button class="btn btn-gray btn-sm" id="media-remove-btn" type="button" onclick="clearProductMedia()" style="display:none;margin-top:.6rem">Remove selected media</button>
           </div>
           <div class="form-group" style="grid-column:1/-1"><label style="display:flex;align-items:center;gap:.5rem;cursor:pointer"><input type="checkbox" id="p-org"/> 🌿 Certified Organic</label></div>
         </div>
@@ -168,6 +161,14 @@
     <section id="s-profile" style="display:none">
       <h2 class="section-title">👤 Profile</h2>
       <div class="card" style="max-width:500px"><div class="card-body">
+        <div class="profile-photo-control" style="margin:0 auto 1rem">
+          <div class="profile-photo-edit">
+            <div class="avatar" id="profile-photo-preview" style="background:var(--green)">F</div>
+            <button class="profile-photo-add" id="profile-photo-upload-btn" type="button" aria-label="Upload your photo" title="Upload your photo" onclick="document.getElementById('profile-photo-file').click()">+</button>
+            <input type="file" id="profile-photo-file" accept="image/jpeg,image/png,image/webp" hidden onchange="uploadCurrentProfilePhoto('profile-photo-file','profile-photo-preview','profile-photo-upload-btn')"/>
+          </div>
+          <span class="profile-photo-caption">Upload your photo</span>
+        </div>
         <div class="form-group"><label>Full Name</label><input type="text" id="pf-name" class="form-control"/></div>
         <div class="form-group"><label>Email</label><input type="email" id="pf-email" class="form-control"/></div>
         <div class="form-group"><label>Bio</label><textarea id="pf-bio" class="form-control" rows="3"></textarea></div>
@@ -181,6 +182,21 @@
         <div class="form-group"><label for="settings-language">Select your preferred language</label><select id="settings-language" class="form-control" data-language-select><option value="en">English</option><option value="ta">Tamil</option><option value="te">Telugu</option></select></div>
         <p class="text-sm text-muted">Your language preference is saved to your account.</p>
         <button class="btn btn-green" id="save-language-btn" type="button" onclick="saveLanguageSetting()">Save Language</button>
+      </div></div>
+      <div class="card" style="max-width:500px;margin-top:1.25rem"><div class="card-body">
+        <h3 style="margin:0 0 .5rem;font-size:1rem">📱 Nearby SMS Alerts</h3>
+        <p class="text-sm text-muted" style="margin-bottom:1rem">Receive SMS when farmers nearby (within 10 km) add urgent product listings. Your location must be saved in your profile.</p>
+        <div id="sms-prefs-error" role="alert" style="color:#b00020;margin-bottom:.5rem;font-size:.875rem"></div>
+        <div class="form-group" style="display:flex;align-items:center;gap:.75rem">
+          <input type="checkbox" id="settings-sms-opt-in" style="width:18px;height:18px;cursor:pointer"/>
+          <label for="settings-sms-opt-in" style="cursor:pointer;margin:0">Receive nearby product &amp; demand SMS alerts</label>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:.75rem">
+          <input type="checkbox" id="settings-share-location" style="width:18px;height:18px;cursor:pointer"/>
+          <label for="settings-share-location" style="cursor:pointer;margin:0">Share my saved location for proximity matching</label>
+        </div>
+        <p class="text-sm text-muted" style="margin-bottom:.75rem">Your phone must be verified and your location (latitude/longitude) set in your profile to enable these.</p>
+        <button class="btn btn-green" id="save-sms-prefs-btn" type="button" onclick="saveSmsAlertPreferences()">Save SMS Alert Preferences</button>
       </div></div>
     </section>
   </main>
@@ -206,6 +222,8 @@
     <div class="card-header"><strong id="product-details-title">Product details</strong><button type="button" aria-label="Close product details" onclick="closeProductDetails()" style="background:none;border:none;font-size:1.3rem;cursor:pointer">✕</button></div>
     <div class="card-body">
       <img id="product-details-image" alt="" style="display:none;width:100%;max-height:300px;object-fit:cover;border-radius:8px;margin-bottom:1rem"/>
+      <div id="product-details-extra-photos" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem;margin-bottom:1rem"></div>
+      <video id="product-details-video" controls style="display:none;width:100%;max-height:360px;border-radius:8px;margin-bottom:1rem"></video>
       <div class="price-tag" id="product-details-price" style="margin-bottom:.75rem"></div>
       <h3 style="font-size:1rem;margin-bottom:.35rem">Description</h3>
       <p id="product-details-description" class="text-sm text-muted" style="white-space:pre-wrap;margin-bottom:1rem"></p>
@@ -228,18 +246,70 @@
     <div class="card-footer"><button type="button" class="btn btn-outline-green" onclick="closeProductDetails()">Close</button></div>
   </div>
 </div>
+<aside class="sms-alert-card" id="sms-alert-card" aria-label="Urgent demand SMS alerts" hidden>
+  <div class="sms-alert-head">
+    <div class="sms-alert-copy"><span class="sms-alert-icon" aria-hidden="true">📱</span><div><h3>Add product &amp; send SMS</h3><p>Share a new product with eligible verified nearby users.</p></div></div>
+    <button class="sms-alert-close" type="button" aria-label="Close SMS alert panel" onclick="closeSmsAlert()">×</button>
+  </div>
+  <div style="display:grid;gap:.55rem;margin:.75rem 0">
+    <label class="text-sm">Product<input class="form-control" id="sms-product-name" type="text" placeholder="e.g. Tomatoes"/></label>
+    <label class="text-sm">Quantity (kg)<input class="form-control" id="sms-product-quantity" type="number" min="0.1" step="0.1" placeholder="e.g. 100"/></label>
+  </div>
+  <button class="sms-alert-action" type="button" onclick="startProductSmsListing()">Add product &amp; send SMS →</button>
+  <button class="sms-alert-secondary" type="button" onclick="openPhoneVerification()">Not verified? Verify with OTP</button>
+</aside>
+<button class="sms-alert-reopen" id="sms-alert-reopen" type="button" aria-label="Open nearby SMS alerts" onclick="openSmsAlert()">📱 <span>Nearby SMS alerts</span></button>
 <script>
   window.GOOGLE_MAPS_KEY = window.GOOGLE_MAPS_KEY || "AIzaSyCxPrZozVZhaON7D8wz5C1AIt7bOPuKcvs";
 </script>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-<script src="/static/js/api.js?v=6"></script>
+<script src="/static/js/api.js?v=9"></script>
 <script>
+let smsAlertManuallyOpen=false;
+let smsAlertAutoCloseTimer;
+function closeSmsAlert(){smsAlertManuallyOpen=false;clearTimeout(smsAlertAutoCloseTimer);document.getElementById("sms-alert-card").hidden=true;document.getElementById("sms-alert-reopen").hidden=false}
+function openSmsAlert(){smsAlertManuallyOpen=true;clearTimeout(smsAlertAutoCloseTimer);document.getElementById("sms-alert-card").hidden=false;document.getElementById("sms-alert-reopen").hidden=true}
+function openPhoneVerification(){window.location.href="/profile.html?verify=1&return=%2Fworkspace.html"}
+async function startProductSmsListing(){
+  const name=document.getElementById("sms-product-name").value.trim();
+  const quantity=document.getElementById("sms-product-quantity").value;
+  if(!name||!quantity||Number(quantity)<=0){showToast("Enter the product and quantity","error");return}
+  let currentUser=user;
+  try{
+    currentUser=await API.me();
+    localStorage.setItem("user",JSON.stringify(currentUser));
+  }catch(error){
+    showToast("Unable to check phone verification. Please try again.","error");
+    return;
+  }
+  if(!currentUser || !currentUser.is_verified){
+    sessionStorage.setItem("smsProductDraft",JSON.stringify({name,quantity,broadcast:true}));
+    window.location.href="/profile.html?verify=1&return=%2Fadd-product-sms.html";
+    return;
+  }
+  sessionStorage.setItem("smsProductDraft",JSON.stringify({name,quantity}));
+  window.location.href="/add-product-sms.html";
+}
+function showSmsAlertPreview(){if(smsAlertManuallyOpen)return;const panel=document.getElementById("sms-alert-card"),bubble=document.getElementById("sms-alert-reopen");panel.hidden=false;bubble.hidden=true;panel.classList.remove("sms-alert-pulse");void panel.offsetWidth;panel.classList.add("sms-alert-pulse");smsAlertAutoCloseTimer=setTimeout(function(){if(!smsAlertManuallyOpen){panel.hidden=true;bubble.hidden=false}},5000)}
+setInterval(showSmsAlertPreview,10000);
 if(!requireAuth())throw new Error("Authentication required");
 const user=getUser();
 if(user.role==="admin")window.location.replace("/admin/dashboard.html");
 document.body.classList.add(user.role==="buyer"?"buyer-workspace":"farmer-workspace");
-document.getElementById("nav-avatar").textContent=user.full_name[0].toUpperCase();
+setUserAvatar(document.getElementById("nav-avatar"),user.full_name,user.profile_image);
 document.getElementById("nav-name").textContent=user.full_name.split(" ")[0];
+let productSmsBroadcast=false;
+const smsProductDraft=sessionStorage.getItem("smsProductDraft");
+if(smsProductDraft){
+  try{
+    const draft=JSON.parse(smsProductDraft);
+    document.getElementById("p-name").value=draft.name||"";
+    document.getElementById("p-qty").value=draft.quantity||"";
+    productSmsBroadcast=Boolean(draft.broadcast);
+    sessionStorage.removeItem("smsProductDraft");
+  }catch(e){sessionStorage.removeItem("smsProductDraft")}
+}
+openSmsAlert();
 if(user.role==="buyer"){
   document.getElementById("workspace-orders-shortcut").setAttribute("aria-label","Track my purchases");
   document.getElementById("workspace-orders-shortcut").title="Track my purchases";
@@ -495,6 +565,7 @@ function show(name){
   if(name==="profile")loadProfile();
   if(name==="overview")loadOverview();
   if(name==="add") initFarmerProductMap();
+  if(name==="settings")loadSmsAlertPreferences();
 }
 
 document.getElementById("settings-language").value=currentLanguage();
@@ -508,6 +579,32 @@ async function saveLanguageSetting(){
     showToast(error.message||"Could not save language preference","error");
   }finally{
     button.disabled=false;
+  }
+}
+
+async function loadSmsAlertPreferences(){
+  try{
+    const prefs=await API.alertPreferences();
+    document.getElementById("settings-sms-opt-in").checked=Boolean(prefs.sms_alerts_opt_in);
+    document.getElementById("settings-share-location").checked=Boolean(prefs.share_location_for_alerts);
+  }catch(e){
+    document.getElementById("sms-prefs-error").textContent=e.message||"Unable to load SMS preferences.";
+  }
+}
+async function saveSmsAlertPreferences(){
+  const errEl=document.getElementById("sms-prefs-error");
+  errEl.textContent="";
+  const optIn=document.getElementById("settings-sms-opt-in").checked;
+  const shareLocation=document.getElementById("settings-share-location").checked;
+  const btn=document.getElementById("save-sms-prefs-btn");
+  btn.disabled=true;btn.textContent="Saving…";
+  try{
+    await API.updateAlertPreferences({sms_alerts_opt_in:optIn,share_location_for_alerts:shareLocation});
+    showToast("SMS alert preferences saved ✅","success");
+  }catch(e){
+    errEl.textContent=e.message||"Could not save SMS preferences.";
+  }finally{
+    btn.disabled=false;btn.textContent="Save SMS Alert Preferences";
   }
 }
 
@@ -640,7 +737,7 @@ function renderMarketCard(product){
   const action=isOwnListing?"show('products')":`orderHomeProduct(${Number(product.id)})`;
   const label=isOwnListing?"Manage listing":"Order";
   const id=Number(product.id);
-  return `<article class="card" style="overflow:hidden;cursor:pointer" role="button" tabindex="0" aria-label="View product details" onclick="showProductDetails(${id})" onkeydown="if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();showProductDetails(${id})}">${product.image_url?`<img src="${product.image_url}" alt="${product.name}" style="width:100%;height:140px;object-fit:cover;display:block"/>`:'<div class="product-img" style="height:140px">🌱</div>'}<div class="card-body"><div class="row-between"><strong>${product.name}</strong><span class="tag">${product.category||"Produce"}</span></div><div class="price-tag">${formatCurrency(product.price_per_kg)}/kg</div><div class="text-sm text-muted">Seller: ${product.farmer_name||"Unknown seller"}</div><div class="text-sm text-muted">${product.district||"Local listing"} · ${formatQty(product)} available</div><div class="text-sm text-muted">View product details</div></div><div class="card-footer"><button class="btn ${isOwnListing?"btn-outline-green":"btn-green"} btn-sm" onclick="event.stopPropagation();${action}">${label}</button></div></article>`;
+  return `<article class="card" style="overflow:hidden;cursor:pointer" role="button" tabindex="0" aria-label="View product details" onclick="showProductDetails(${id})" onkeydown="if(event.target===event.currentTarget&&(event.key==='Enter'||event.key===' ')){event.preventDefault();showProductDetails(${id})}">${product.image_url?`<img src="${product.image_url}" alt="${product.name}" style="width:100%;height:140px;object-fit:cover;display:block"/>`:'<div class="product-img" style="height:140px">🌱</div>'}<div class="card-body"><div class="row-between"><strong>${product.name}</strong><span class="tag">${product.category||"Produce"}</span></div><div class="price-tag">${formatCurrency(product.price_per_kg)}/kg</div><div style="display:flex;align-items:center;gap:.5rem;margin-top:.4rem">${profileAvatarMarkup(product.farmer_name||"Farmer",product.farmer_profile_image)}<span class="text-sm text-muted">${product.farmer_name||"Unknown seller"}</span></div><div class="text-sm text-muted">${product.district||"Local listing"} · ${formatQty(product)} available</div><div class="text-sm text-muted">View product details</div></div><div class="card-footer"><button class="btn ${isOwnListing?"btn-outline-green":"btn-green"} btn-sm" onclick="event.stopPropagation();${action}">${label}</button></div></article>`;
 }
 
 function showProductDetails(productId){
@@ -661,15 +758,29 @@ function showProductDetails(productId){
   setDetail("product-details-created",formatDate(product.created_at));
   setDetail("product-details-seller",product.farmer_name||"Unknown seller");
   const location=[product.district,product.latitude!=null&&product.longitude!=null?`${Number(product.latitude).toFixed(4)}, ${Number(product.longitude).toFixed(4)}`:""].filter(Boolean).join(" · ");
-  setDetail("product-details-location",location||"Location not provided");
+  setDetail("product-details-location",[product.pickup_address,location].filter(Boolean).join(" · ")||"Pickup details not provided");
   const image=document.getElementById("product-details-image");
   image.src=product.image_url||"";
   image.alt=product.name;
   image.style.display=product.image_url?"block":"none";
+  const extraPhotos=document.getElementById("product-details-extra-photos");
+  extraPhotos.replaceChildren();
+  (product.image_urls||[]).slice(1).forEach((url,index)=>{
+    const photo=document.createElement("img");
+    photo.src=url;
+    photo.alt=`${product.name} photo ${index+2}`;
+    photo.loading="lazy";
+    photo.style.cssText="width:100%;height:180px;object-fit:cover;border-radius:8px";
+    extraPhotos.appendChild(photo);
+  });
+  const video=document.getElementById("product-details-video");
+  video.pause();
+  video.src=product.video_url||"";
+  video.style.display=product.video_url?"block":"none";
   document.getElementById("product-details-modal").style.display="flex";
 }
 
-function closeProductDetails(){document.getElementById("product-details-modal").style.display="none"}
+function closeProductDetails(){document.getElementById("product-details-video").pause();document.getElementById("product-details-modal").style.display="none"}
 document.addEventListener("keydown",event=>{if(event.key==="Escape")closeProductDetails()});
 
 function orderHomeProduct(productId){const product=workspaceProducts.find(item=>item.id===productId);if(product&&product.farmer_id!==user.id)buyProduct(product)}
@@ -686,35 +797,51 @@ async function loadMyProducts(){
   }catch(e){g.innerHTML=`<div style="color:red;grid-column:1/-1">${e.message}</div>`}
 }
 
-let uploadedImageUrl = null;
+let uploadedImageUrls = [];
+let uploadedVideoUrl = null;
 
-function clearImage(){
-  uploadedImageUrl = null;
-  const f=document.getElementById('p-image');
+function clearProductMedia(){
+  uploadedImageUrls=[];
+  uploadedVideoUrl=null;
+  const f=document.getElementById('p-media');
   if(f)f.value='';
-  const wrap=document.getElementById('img-preview-wrap');
-  if(wrap)wrap.style.display='none';
+  document.getElementById('media-preview-list').replaceChildren();
+  document.getElementById('media-remove-btn').style.display='none';
 }
 
-async function uploadImage(){
-  const input=document.getElementById('p-image');
-  const file=input?.files?.[0];
-  if(!file){showToast('Select an image first','error');return}
-  const btn=document.getElementById('img-upload-btn');
+async function uploadProductMedia(){
+  const input=document.getElementById('p-media');
+  const files=Array.from(input?.files||[]);
+  if(!files.length){showToast('Select photos or a video first','error');return}
+  if(uploadedVideoUrl&&files.some(file=>file.type.startsWith('video/'))){showToast('Only one video can be added to a product','error');return}
+  const btn=document.getElementById('media-upload-btn');
   try{
     btn.disabled=true;
     btn.innerHTML='<span class="loader"></span> Uploading';
-    const res=await API.uploadProductImage(file);
-    uploadedImageUrl = res.image_url;
-    const wrap=document.getElementById('img-preview-wrap');
-    const img=document.getElementById('img-preview');
-    const fn=document.getElementById('img-filename');
-    if(img)img.src=uploadedImageUrl;
-    if(fn)fn.textContent=res.filename || file.name;
-    if(wrap)wrap.style.display='block';
-    showToast('Image uploaded ✅','success');
+    const uploaded=await API.uploadProductMedia(files);
+    const firstNewImage=uploadedImageUrls.length;
+    uploadedImageUrls.push(...uploaded.image_urls);
+    uploadedVideoUrl=uploaded.video_url||uploadedVideoUrl;
+    const previews=document.getElementById('media-preview-list');
+    uploaded.image_urls.forEach((url,index)=>{
+      const photo=document.createElement('img');
+      photo.src=url;
+      photo.alt=`Uploaded product photo ${firstNewImage+index+1}`;
+      photo.style.cssText="width:110px;height:80px;object-fit:cover;border-radius:8px";
+      previews.appendChild(photo);
+    });
+    if(uploaded.video_url){
+      const video=document.createElement('video');
+      video.src=uploaded.video_url;
+      video.controls=true;
+      video.style.cssText="width:160px;height:90px;border-radius:8px";
+      previews.appendChild(video);
+    }
+    input.value='';
+    document.getElementById('media-remove-btn').style.display='inline-flex';
+    showToast('Product media uploaded ✅','success');
   }catch(e){showToast(e.message,'error')}
-  finally{btn.disabled=false;btn.innerHTML='Upload'}
+  finally{btn.disabled=false;btn.innerHTML='Upload selected media'}
 }
 
 async function addProduct(){
@@ -723,7 +850,7 @@ async function addProduct(){
   const unit=document.getElementById("p-unit").value;
   const districtValue = (document.getElementById("p-dist").value || "").trim();
   const locationValue = (document.getElementById("p-location").value || "").trim();
-  const data={name:document.getElementById("p-name").value.trim(),category:document.getElementById("p-cat").value,description:document.getElementById("p-desc").value||null,quantity_kg:qty,quantity_unit:unit,price_per_kg:parseFloat(document.getElementById("p-price").value),min_order_kg:parseFloat(document.getElementById("p-min").value)||1,district:districtValue || (user && user.district ? user.district : null),latitude:productLatLng ? productLatLng.lat : (user && user.latitude ? user.latitude : null),longitude:productLatLng ? productLatLng.lng : (user && user.longitude ? user.longitude : null),is_organic:document.getElementById("p-org").checked,harvest_date:document.getElementById("p-harvest").value||null,expiry_date:document.getElementById("p-expiry").value||null,image_url:uploadedImageUrl};
+  const data={name:document.getElementById("p-name").value.trim(),category:document.getElementById("p-cat").value,description:document.getElementById("p-desc").value||null,quantity_kg:qty,quantity_unit:unit,price_per_kg:parseFloat(document.getElementById("p-price").value),min_order_kg:parseFloat(document.getElementById("p-min").value)||1,district:districtValue || (user && user.district ? user.district : null),latitude:productLatLng ? productLatLng.lat : (user && user.latitude != null ? user.latitude : null),longitude:productLatLng ? productLatLng.lng : (user && user.longitude != null ? user.longitude : null),broadcast_sms:productSmsBroadcast,allow_location_based_alerts:productSmsBroadcast,is_organic:document.getElementById("p-org").checked,harvest_date:document.getElementById("p-harvest").value||null,expiry_date:document.getElementById("p-expiry").value||null,image_url:uploadedImageUrls[0]||null,image_urls:uploadedImageUrls,video_url:uploadedVideoUrl};
   if (!data.district && locationValue) {
     data.district = locationValue.split(',').slice(-2).join(',').trim() || locationValue;
   }
@@ -734,7 +861,7 @@ async function addProduct(){
   if(!data.name||!data.category||!data.quantity_kg||!data.price_per_kg){showToast("Fill in all required fields","error");return}
   if(!data.district && user && user.district){data.district = user.district;}
   btn.innerHTML='<span class="loader"></span>';btn.disabled=true;
-  try{await API.createProduct(data);showToast("Product listed! 🌿","success");["p-name","p-desc","p-qty","p-price","p-dist","p-location","p-harvest","p-expiry"].forEach(id=>document.getElementById(id).value="");document.getElementById("p-cat").value="";document.getElementById("p-org").checked=false;productLatLng=null;clearImage();show("products");}
+  try{await API.createProduct(data);showToast(productSmsBroadcast?"Product listed; SMS alerts queued for eligible verified users.":"Product listed! 🌿","success");productSmsBroadcast=false;["p-name","p-desc","p-qty","p-price","p-dist","p-location","p-harvest","p-expiry"].forEach(id=>document.getElementById(id).value="");document.getElementById("p-cat").value="";document.getElementById("p-org").checked=false;productLatLng=null;clearProductMedia();show("products");}
   catch(e){showToast(e.message,"error")}finally{btn.innerHTML="List Product";btn.disabled=false}
 }
 
@@ -1020,7 +1147,16 @@ async function loadChatRooms(){
 }
 
 async function loadProfile(){
-  try{const u=await API.me();document.getElementById("pf-name").value=u.full_name||"";document.getElementById("pf-email").value=u.email||"";document.getElementById("pf-bio").value=u.bio||"";document.getElementById("pf-dist").value=u.district||""}catch(e){}
+  try{
+    const u=await API.me();
+    localStorage.setItem("user",JSON.stringify(u));
+    setUserAvatar(document.getElementById("profile-photo-preview"),u.full_name,u.profile_image);
+    setUserAvatar(document.getElementById("nav-avatar"),u.full_name,u.profile_image);
+    document.getElementById("pf-name").value=u.full_name||"";
+    document.getElementById("pf-email").value=u.email||"";
+    document.getElementById("pf-bio").value=u.bio||"";
+    document.getElementById("pf-dist").value=u.district||"";
+  }catch(e){showToast(e.message,"error")}
 }
 async function saveProfile(){try{await API.updateMe({full_name:document.getElementById("pf-name").value,email:document.getElementById("pf-email").value||null,bio:document.getElementById("pf-bio").value,district:document.getElementById("pf-dist").value});showToast("Profile saved! ✅","success")}catch(e){showToast(e.message,"error")}}
 

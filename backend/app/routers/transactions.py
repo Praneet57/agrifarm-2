@@ -14,7 +14,19 @@ from app.models.product import Product
 from app.models.order import Order
 from app.models.payment import Payment, Agreement, Rating
 from app.routers.chat import push_order_status_update
-from app.schemas import DemandCreate, DemandOut, OrderCreate, OrderOut, OrderStatusUpdate, PaymentCreate, PaymentVerify, RatingCreate, RatingOut
+from app.schemas import (
+    DemandCreate,
+    DemandOut,
+    DemandPublicOut,
+    OrderCreate,
+    OrderOut,
+    OrderStatusUpdate,
+    PaymentCreate,
+    PaymentVerify,
+    RatingCreate,
+    RatingOut,
+)
+from app.services.demand_alert_service import create_demand_notifications
 
 
 def serialize_order(o, product_name: Optional[str] = None):
@@ -47,21 +59,47 @@ demand_router = APIRouter(prefix="/demands", tags=["Demands"])
 
 @demand_router.post("/", response_model=DemandOut, status_code=201)
 async def create_demand(data: DemandCreate, current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
-    d = Demand(buyer_id=current_user.id, **data.model_dump()); db.add(d); await db.flush(); await db.refresh(d)
+    if data.is_urgent:
+        if not current_user.is_verified:
+            raise HTTPException(400, "Verify your phone with OTP before sending an urgent SMS demand")
+        if not data.allow_location_based_alerts:
+            raise HTTPException(400, "Allow location matching before sending an urgent SMS demand")
+        if data.latitude is None or data.longitude is None:
+            raise HTTPException(400, "Pin your demand location before sending an urgent SMS demand")
+    d = Demand(buyer_id=current_user.id, **data.model_dump())
+    db.add(d)
+    await db.flush()
+    await create_demand_notifications(db, d)
+    await db.refresh(d)
     return DemandOut.model_validate(d)
 
-@demand_router.get("/", response_model=List[DemandOut])
+@demand_router.get("/", response_model=List[DemandPublicOut])
 async def list_demands(category: Optional[str]=None, district: Optional[str]=None, limit: int=20, offset: int=0, db: AsyncSession=Depends(get_db)):
     q = select(Demand).where(Demand.status == "open", Demand.is_active == True)
     if category: q = q.where(Demand.category.ilike(f"%{category}%"))
     if district: q = q.where(Demand.district.ilike(f"%{district}%"))
     result = await db.execute(q.offset(offset).limit(limit))
-    return [DemandOut.model_validate(d) for d in result.scalars().all()]
+    return [DemandPublicOut.model_validate(d) for d in result.scalars().all()]
 
 @demand_router.get("/my", response_model=List[DemandOut])
 async def my_demands(current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Demand).where(Demand.buyer_id == current_user.id))
     return [DemandOut.model_validate(d) for d in result.scalars().all()]
+
+
+@demand_router.get("/{demand_id}", response_model=DemandPublicOut)
+async def get_public_demand(demand_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Demand).where(
+            Demand.id == demand_id,
+            Demand.status == "open",
+            Demand.is_active.is_(True),
+        )
+    )
+    demand = result.scalar_one_or_none()
+    if not demand:
+        raise HTTPException(404, "Demand not found")
+    return DemandPublicOut.model_validate(demand)
 
 order_router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -80,8 +118,14 @@ async def create_order(data: OrderCreate, current_user: User = Depends(require_m
             raise HTTPException(400, "You cannot buy your own product")
         if data.farmer_id != product.farmer_id:
             raise HTTPException(400, "Product seller does not match the order seller")
+        if product.status != "available" or not product.is_active:
+            raise HTTPException(400, "This product is no longer available")
+        if data.quantity_kg < product.min_order_kg:
+            raise HTTPException(400, f"Minimum order quantity is {product.min_order_kg} kg")
         if data.quantity_kg > product.quantity_kg:
-            raise HTTPException(400, f"Only {product.quantity_kg}kg available in stock")
+            raise HTTPException(400, f"Only {product.quantity_kg} kg available in stock")
+        if abs(data.price_per_kg - product.price_per_kg) > 0.01:
+            raise HTTPException(400, f"Price must match the listed price of ₹{product.price_per_kg}/kg")
     total = round(data.quantity_kg * data.price_per_kg, 2)
     fee = round(total * 0.02, 2); net = round(total - fee, 2)
     order = Order(order_number=f"AGM-{uuid.uuid4().hex[:8].upper()}", buyer_id=current_user.id,
@@ -197,20 +241,33 @@ async def create_payment(data: PaymentCreate, current_user: User = Depends(get_c
 async def verify_payment(data: PaymentVerify, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Payment).where(Payment.razorpay_order_id == data.razorpay_order_id))
     pay = result.scalar_one_or_none()
-    if not pay: raise HTTPException(404, "Payment not found")
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+
+    ord_res = await db.execute(select(Order).where(Order.id == pay.order_id))
+    order = ord_res.scalar_one_or_none()
+    if not order or order.buyer_id != current_user.id:
+        raise HTTPException(403, "You are not authorized to verify payment for this order")
+
+    if pay.status == "captured":
+        return {"success": True, "message": "Payment already verified. Amount held in escrow."}
+
     msg = f"{data.razorpay_order_id}|{data.razorpay_payment_id}"
     expected = hmac.new(settings.RAZORPAY_KEY_SECRET.encode(), msg.encode(), hashlib.sha256).hexdigest()
-    is_demo = data.razorpay_order_id.startswith("order_demo_")
+    is_demo = pay.razorpay_order_id.startswith("order_demo_") and settings.DEBUG
     if hmac.compare_digest(expected, data.razorpay_signature) or is_demo:
         pay.razorpay_payment_id = data.razorpay_payment_id
         pay.razorpay_signature = data.razorpay_signature
-        pay.status = "captured"; pay.escrow_active = True
-        ord_res = await db.execute(select(Order).where(Order.id == pay.order_id))
-        o = ord_res.scalar_one_or_none()
-        if o: o.status = "paid"; o.paid_at = datetime.utcnow()
+        pay.status = "captured"
+        pay.escrow_active = True
+        order.status = "paid"
+        order.paid_at = datetime.utcnow()
         await db.flush()
+        await push_order_status_update(db, order.id, "paid", current_user.id)
         return {"success": True, "message": "Payment verified. Amount held in escrow."}
-    pay.status = "failed"; await db.flush()
+
+    pay.status = "failed"
+    await db.flush()
     raise HTTPException(400, "Payment verification failed")
 
 @payment_router.post("/{order_id}/release-escrow")
@@ -259,6 +316,21 @@ rating_router = APIRouter(prefix="/ratings", tags=["Ratings"])
 
 @rating_router.post("/", response_model=RatingOut, status_code=201)
 async def create_rating(data: RatingCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    ord_res = await db.execute(select(Order).where(Order.id == data.order_id))
+    order = ord_res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order.buyer_id != current_user.id and order.farmer_id != current_user.id:
+        raise HTTPException(403, "Not your order")
+    if order.status != "completed":
+        raise HTTPException(400, "You can only rate after the order is completed")
+    if data.rated_id not in (order.farmer_id, order.buyer_id):
+        raise HTTPException(400, "Invalid user to rate")
+    if data.rated_id == current_user.id:
+        raise HTTPException(400, "You cannot rate yourself")
+    dup_res = await db.execute(select(Rating).where(Rating.order_id == data.order_id, Rating.rater_id == current_user.id, Rating.rated_id == data.rated_id))
+    if dup_res.scalar_one_or_none():
+        raise HTTPException(400, "You have already rated this user for this order")
     rating = Rating(order_id=data.order_id, rater_id=current_user.id, rated_id=data.rated_id, score=data.score, comment=data.comment)
     db.add(rating); await db.flush(); await db.refresh(rating)
     return RatingOut.model_validate(rating)

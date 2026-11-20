@@ -244,4 +244,28 @@ make clean      # Remove everything (containers + volumes)
 
 ---
 
+## 📲 Urgent demand SMS alerts
+
+Urgent demand broadcasts use the existing Celery worker and beat service. Recipients must have a verified phone, opt in to SMS alerts, and separately consent to use of their saved coordinates. Buyers must mark a demand urgent and explicitly allow its pinned coordinates to be used for nearby matching. Matching uses a 10 km geodesic radius; only the district/general area is included in the alert. The public demand view omits buyer ID, delivery address, and coordinates; the public user-profile API omits coordinates and door-level address.
+
+Configure these values in `backend/.env` before enabling delivery:
+
+```env
+APP_PUBLIC_URL=https://your-public-agrimarket-domain
+SMS_ALERT_RECIPIENT_ROLE=all
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_PHONE_NUMBER=
+TWILIO_CONTENT_TEMPLATE_SID=
+TWILIO_PRODUCT_TEMPLATE_SID=
+```
+
+`SMS_ALERT_RECIPIENT_ROLE` accepts `all` (farmers and buyers, excluding admins) or `farmer`. The content template must already be approved for use in India and contain variables `1` product, `2` quantity, `3` urgency, `4` general area, and `5` the public AgriMarket demand link. Verify the provider's registered sender/header, DLT entity/template configuration, and applicable consent requirements before supplying provider credentials. Twilio receives a signed delivery-status callback at `/api/v1/sms/twilio/status`; the public HTTPS URL and configured auth token are required to record final outcomes. With incomplete SMS configuration, delivery is recorded as not configured and no demo SMS is emitted. Celery worker and beat services must both be running for dispatch and retry processing.
+
+The dedicated **Add Product & Send SMS** flow does not collect latitude or longitude. It requires a pickup address and sends the approved product template to all active, verified users who opted in to SMS alerts; it does not use recipient location matching. Product templates use variables `1` product, `2` quantity, `3` listing status, `4` district, `5` product link, and `6` pickup address. No buyer or seller mobile number is included in the broadcast; interested buyers should respond through AgriMarket and share contact details themselves.
+
+Apply the database migration with `make migrate` after reviewing the deployment plan; this change does not run migrations automatically.
+
+---
+
 Built with ❤️ for Indian Farmers

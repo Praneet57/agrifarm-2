@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -18,7 +18,10 @@ class Product(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     district = Column(String(100), nullable=True)
+    pickup_address = Column(Text, nullable=True)
     image_url = Column(String(500), nullable=True)
+    image_urls = Column(JSON, nullable=False, default=list)
+    video_url = Column(String(500), nullable=True)
     harvest_date = Column(DateTime(timezone=True), nullable=True)
     expiry_date = Column(DateTime(timezone=True), nullable=True)
     is_organic = Column(Boolean, default=False)
@@ -32,3 +35,7 @@ class Product(Base):
     @property
     def farmer_name(self):
         return self.farmer.full_name if self.farmer else None
+
+    @property
+    def farmer_profile_image(self):
+        return self.farmer.profile_image if self.farmer else None

@@ -69,8 +69,17 @@ async def push_order_status_update(db: AsyncSession, order_id: int, status: str,
 async def websocket_chat(websocket: WebSocket, order_id: int, token: str):
     try:
         payload = decode_token(token); user_id = int(payload["sub"])
-    except:
+    except Exception:
         await websocket.close(code=4001, reason="Unauthorized"); return
+
+    from app.core.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        ord_r = await db.execute(select(Order).where(Order.id == order_id))
+        order = ord_r.scalar_one_or_none()
+        if not order or (order.farmer_id != user_id and order.buyer_id != user_id):
+            await websocket.close(code=4003, reason="Forbidden: Not an order participant")
+            return
+
     room_id = f"order_{order_id}"
     await manager.connect(room_id, user_id, websocket)
     await manager.broadcast(room_id, {"type":"presence","user_id":user_id,"status":"online","online_users":manager.online_users(room_id)})

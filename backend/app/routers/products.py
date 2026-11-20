@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user, require_marketplace_user
 from app.models.user import User
 from app.models.product import Product
+from app.services.demand_alert_service import create_product_notifications
 from app.schemas import ProductCreate, ProductOut, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["Products"])
@@ -21,9 +22,19 @@ def haversine(lat1,lon1,lat2,lon2):
 
 @router.post("/", response_model=ProductOut, status_code=201)
 async def create_product(data: ProductCreate, current_user: User = Depends(require_marketplace_user), db: AsyncSession = Depends(get_db)):
-    d = data.model_dump()
-    d["latitude"] = d.get("latitude") or current_user.latitude
-    d["longitude"] = d.get("longitude") or current_user.longitude
+    d = data.model_dump(exclude={"broadcast_sms", "allow_location_based_alerts"})
+    broadcast_sms = data.broadcast_sms
+    if broadcast_sms and not current_user.is_verified:
+        raise HTTPException(
+            400,
+            "Verify your phone with OTP before sending product SMS alerts",
+        )
+    if d["image_urls"]:
+        d["image_url"] = d["image_urls"][0]
+    if d.get("latitude") is None:
+        d["latitude"] = current_user.latitude
+    if d.get("longitude") is None:
+        d["longitude"] = current_user.longitude
     d["district"] = d.get("district") or current_user.district
     # Normalize unit; ensure quantity_kg is stored in kg
     unit = (d.get("quantity_unit") or "kg").lower()
@@ -36,6 +47,8 @@ async def create_product(data: ProductCreate, current_user: User = Depends(requi
         d["quantity_kg"] = d["quantity_kg"] / 1000
     product = Product(farmer_id=current_user.id, farmer=current_user, **d)
     db.add(product); await db.flush(); await db.refresh(product)
+    if broadcast_sms:
+        await create_product_notifications(db, product)
     return ProductOut.model_validate(product)
 
 @router.get("/", response_model=List[ProductOut])
@@ -132,6 +145,8 @@ async def update_product(product_id: int, data: ProductUpdate, current_user: Use
     p = result.scalar_one_or_none()
     if not p: raise HTTPException(404, "Product not found")
     updates = data.model_dump(exclude_unset=True)
+    if "image_urls" in updates and updates["image_urls"] is not None:
+        updates["image_url"] = updates["image_urls"][0] if updates["image_urls"] else None
     # If unit changes, re-normalize the quantity to kg
     if "quantity_unit" in updates and updates["quantity_unit"] is not None:
         unit = updates["quantity_unit"].lower()
@@ -184,8 +199,74 @@ async def upload_product_image(
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = os.path.join(upload_dir, filename)
 
-    with open(filepath, "wb") as f:
-        f.write(contents)
+    with open(filepath, "wb") as uploaded_file:
+        uploaded_file.write(contents)
 
     image_url = f"/uploads/products/{filename}"
     return {"image_url": image_url, "filename": filename}
+
+
+@router.post("/upload-media", response_model=dict)
+async def upload_product_media(
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(require_marketplace_user),
+):
+    import os
+    import uuid
+
+    if not files:
+        raise HTTPException(400, "Select at least one photo or video")
+
+    image_extensions = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+    video_extensions = {
+        "video/mp4": ".mp4",
+        "video/webm": ".webm",
+        "video/ogg": ".ogv",
+    }
+    media_files = []
+    for file in files:
+        content_type = file.content_type or ""
+        extension = image_extensions.get(content_type) or video_extensions.get(content_type)
+        if extension is None:
+            raise HTTPException(400, "Use JPG, PNG, WEBP photos or MP4, WEBM, OGG videos")
+        media_files.append((file, extension, content_type in video_extensions))
+    if sum(is_video for _, _, is_video in media_files) > 1:
+        raise HTTPException(400, "Upload only one video per product")
+
+    image_urls = []
+    video_url = None
+    total_size = 0
+    prepared_media = []
+    upload_dir = os.path.join("/app/uploads", "products")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    for file, extension, is_video in media_files:
+        max_size = 50 * 1024 * 1024 if is_video else 5 * 1024 * 1024
+        contents = await file.read(max_size + 1)
+        if not contents:
+            raise HTTPException(400, "Selected media file is empty")
+        if len(contents) > max_size:
+            label = "Video" if is_video else "Photo"
+            raise HTTPException(400, f"{label} must be under {max_size // (1024 * 1024)}MB")
+        total_size += len(contents)
+        if total_size > 60 * 1024 * 1024:
+            raise HTTPException(400, "Selected media must total less than 60MB")
+        prepared_media.append((extension, is_video, contents))
+
+    for extension, is_video, contents in prepared_media:
+        filename = f"{uuid.uuid4().hex}{extension}"
+        filepath = os.path.join(upload_dir, filename)
+        with open(filepath, "wb") as uploaded_file:
+            uploaded_file.write(contents)
+        media_url = f"/uploads/products/{filename}"
+
+        if is_video:
+            video_url = media_url
+        else:
+            image_urls.append(media_url)
+
+    return {"image_urls": image_urls, "video_url": video_url}

@@ -15,8 +15,12 @@
     <div style="background:#f5f5f5;border-radius:8px;padding:.75rem;font-size:.82rem;color:var(--muted)"><strong>Demo accounts:</strong><br>Farmer: 9000000001 / farmer123<br>Buyer: 9000000002 / buyer123</div>
   </div>
 </div>
-<script src="/static/js/api.js?v=4"></script>
+<script src="/static/js/api.js?v=9"></script>
 <script>
+if(new URLSearchParams(window.location.search).get("logout")==="1"){
+  clearAuth();
+  window.history.replaceState(null,"","/login.html");
+}
 redirectIfLoggedIn();
 function togglePwd(){const p=document.getElementById("password"),e=document.getElementById("eye");p.type=p.type==="password"?"text":"password";e.textContent=p.type==="password"?"👁":"🙈"}
 document.addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});

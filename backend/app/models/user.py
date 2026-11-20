@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Enum, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -20,6 +20,11 @@ class User(Base):
     preferred_language = Column(String(2), nullable=False, default="en", server_default="en")
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    sms_alerts_opt_in = Column(Boolean, nullable=False, default=False, server_default="false")
+    sms_alert_consent_at = Column(DateTime(timezone=True), nullable=True)
+    sms_alerts_opted_out_at = Column(DateTime(timezone=True), nullable=True)
+    share_location_for_alerts = Column(Boolean, nullable=False, default=False, server_default="false")
+    location_sharing_consent_at = Column(DateTime(timezone=True), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     village = Column(String(100), nullable=True)
@@ -49,3 +54,5 @@ class User(Base):
     sent_messages = relationship("ChatMessage", foreign_keys="ChatMessage.sender_id", back_populates="sender")
     ratings_given = relationship("Rating", foreign_keys="Rating.rater_id", back_populates="rater")
     ratings_received = relationship("Rating", foreign_keys="Rating.rated_id", back_populates="rated")
+
+Index("ix_users_alert_coordinates", User.latitude, User.longitude)
